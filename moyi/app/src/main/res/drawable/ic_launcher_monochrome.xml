@@ -5,13 +5,15 @@
     <path
         android:pathData="M54,29 A25,25 0 1,0 73,37"
         android:strokeColor="#FFFFFF"
-        android:strokeWidth="7.5"
+        android:strokeWidth="7"
         android:strokeLineCap="round"
         android:fillColor="#00000000" />
-    <path
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="3"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M64.5,70 h10" />
+    <group android:rotation="-8" android:pivotX="69.5" android:pivotY="70">
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"
+            android:pathData="M64.5,70 h10" />
+    </group>
 </vector>

@@ -931,4 +931,14 @@ route(/^\/about$/, async () => {
 });
 
 /* ── 启动 ─────────────────────────────────────────────────── */
+/* 路由持久化：进程被系统回收后重新拉起时续读上次页面 */
+window.addEventListener("hashchange", () => {
+  try { localStorage.setItem("moyi_last_hash", location.hash); } catch { /* 忽略 */ }
+});
+try {
+  const last = localStorage.getItem("moyi_last_hash");
+  if ((!location.hash || location.hash === "#/") && last && last !== "#/") {
+    location.replace(last);
+  }
+} catch { /* 忽略 */ }
 render();

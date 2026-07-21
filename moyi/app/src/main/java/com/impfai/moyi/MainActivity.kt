@@ -3,35 +3,33 @@ package com.impfai.moyi
 import android.annotation.SuppressLint
 import android.os.Bundle
 import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.webkit.WebSettingsCompat
-import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewFeature
 
 /**
  * 墨一 —— 离线诗词档案馆。
  *
- * 前端为 assets/www 下的静态站点，经 WebViewAssetLoader 以
- * https://appassets.androidx.dev 提供（同源、可 fetch 分片 JSON）。
+ * 前端为 assets/www 下的静态站点，由进程内环回 HTTP 服务器
+ * （AssetHttpServer，127.0.0.1 随机端口）供给。路由状态由前端
+ * 自行持久化（localStorage），进程重建后自动续读。
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
+    private lateinit var server: AssetHttpServer
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        server = AssetHttpServer(applicationContext).also { it.start() }
+
         webView = WebView(this)
         setContentView(webView)
-
-        val assetLoader = WebViewAssetLoader.Builder()
-            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
-            .build()
 
         webView.settings.apply {
             javaScriptEnabled = true
@@ -46,15 +44,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.webViewClient = object : WebViewClient() {
-            override fun shouldInterceptRequest(
-                view: WebView,
-                request: WebResourceRequest,
-            ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
-
             override fun shouldOverrideUrlLoading(
                 view: WebView,
                 request: WebResourceRequest,
-            ): Boolean = request.url.host != "appassets.androidx.dev"
+            ): Boolean = request.url.host != "127.0.0.1"
         }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -63,19 +56,11 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        if (savedInstanceState == null) {
-            webView.loadUrl("https://appassets.androidx.dev/assets/www/index.html")
-        } else {
-            webView.restoreState(savedInstanceState)
-        }
-    }
-
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        webView.saveState(outState)
+        webView.loadUrl("http://127.0.0.1:${server.port}/www/index.html")
     }
 
     override fun onDestroy() {
+        server.stop()
         webView.destroy()
         super.onDestroy()
     }

@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 全部数据离线内置。INTERNET 为 WebView 渲染进程运行所需
-         （缺失时部分 WebView 版本对拦截请求也报 net::ERR_CACHE_MISS），
-         App 自身不发起任何网络请求：资源均由 WebViewAssetLoader 本地供给 -->
+    <!-- 全部数据离线内置。INTERNET 用于进程内环回（127.0.0.1）资源
+         服务器与 WebView 之间的本机通信，不产生任何对外网络请求 -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
@@ -12,6 +11,7 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="false"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.MoYi">
 
         <activity
