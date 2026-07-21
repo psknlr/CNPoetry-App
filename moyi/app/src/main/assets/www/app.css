@@ -355,3 +355,32 @@ button {
 .about .credit { font-size: .78rem; color: var(--ink-3); }
 
 .list-more { text-align: center; padding: 16px 0 4px; }
+
+/* ── 意象星图 ─────────────────────────────────────────────── */
+.starmap-wrap {
+  position: relative; border: 1px solid var(--hairline); border-radius: 16px;
+  background: var(--paper-raise); box-shadow: var(--shadow); overflow: hidden;
+  margin-bottom: 14px;
+}
+.starmap-wrap canvas { display: block; width: 100%; touch-action: manipulation; }
+.starmap-hint {
+  position: absolute; left: 14px; top: 12px; font-size: .72rem;
+  color: var(--ink-3); letter-spacing: .2em; pointer-events: none;
+}
+.star-info { padding: 16px 18px; }
+.star-info .si-head { display: flex; align-items: baseline; gap: 12px; }
+.star-info .si-head .g { font-size: 1.9rem; font-weight: 700; }
+.star-info .si-head .n { color: var(--ink-3); font-size: .78rem; letter-spacing: .12em; }
+.star-info .si-head .go { margin-left: auto; color: var(--seal); font-size: .82rem; letter-spacing: .15em; }
+.star-info .si-edges { margin-top: 8px; }
+
+/* ── 收藏夹 ───────────────────────────────────────────────── */
+.fav-row { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--hairline); }
+.fav-row .poem-row { flex: 1; border-bottom: none; min-width: 0; }
+.fav-row .rm {
+  flex: none; width: 34px; height: 34px; border-radius: 8px;
+  border: 1px solid var(--hairline); color: var(--ink-3);
+  display: flex; align-items: center; justify-content: center; font-size: .9rem;
+}
+.fav-row .rm:active { background: color-mix(in srgb, var(--seal) 12%, transparent); color: var(--seal); }
+.r-tools button.fav-on { background: var(--seal); border-color: var(--seal); color: var(--seal-ink); }

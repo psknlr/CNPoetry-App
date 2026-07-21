@@ -62,6 +62,24 @@ function catalog() {
   return _catalogP;
 }
 
+/* ── 收藏夹（localStorage） ────────────────────────────────── */
+const FAV_KEY = "moyi_fav_v1";
+function getFavs() {
+  try { return JSON.parse(localStorage.getItem(FAV_KEY) || "[]"); }
+  catch { return []; }
+}
+function isFav(id) { return getFavs().some(f => f.id === id); }
+function toggleFav(poem) {
+  let favs = getFavs();
+  if (favs.some(f => f.id === poem.id)) {
+    favs = favs.filter(f => f.id !== poem.id);
+  } else {
+    favs.unshift({ id: poem.id, t: poem.t, a: poem.a, d: poem.d, ts: Date.now() });
+  }
+  localStorage.setItem(FAV_KEY, JSON.stringify(favs));
+  return favs.some(f => f.id === poem.id);
+}
+
 /* ── 路由 ─────────────────────────────────────────────────── */
 const routes = [];
 function route(pattern, fn) { routes.push({ pattern, fn }); }
@@ -85,7 +103,7 @@ async function render() {
       t === (["", "poem"].includes(tab) ? "home" : tab) ||
       (t === "home" && path === "/") ||
       (t === "imagery" && tab === "imagery") ||
-      (t === "salon" && ["salon", "cipai", "theme", "feihua", "about"].includes(tab)) ||
+      (t === "salon" && ["salon", "cipai", "theme", "feihua", "about", "starmap", "fav"].includes(tab)) ||
       (t === "poets" && tab === "poet"));
   });
   for (const { pattern, fn } of routes) {
@@ -475,11 +493,199 @@ route(/^\/salon$/, async () => {
     </div>
     <hr class="rule-double">
     <div class="entry-grid">
+      <a class="entry" href="#/starmap"><b>意象星图</b><span>五十意象 · 同篇共现网络</span><span class="e-glyph">星</span></a>
+      <a class="entry" href="#/fav"><b>收藏夹</b><span>${getFavs().length} 首 · 私藏诗笺</span><span class="e-glyph">藏</span></a>
       <a class="entry" href="#/cipai"><b>词牌定格</b><span>${stats.cipai} 牌 · 语料归纳句式</span><span class="e-glyph">词</span></a>
       <a class="entry" href="#/theme"><b>题材九品</b><span>${stats.themes} 品 · 咏史至闺怨</span><span class="e-glyph">品</span></a>
       <a class="entry" href="#/feihua"><b>飞花令</b><span>以字为令 · 语料实证应对</span><span class="e-glyph">飞</span></a>
       <a class="entry" href="#/about"><b>关于墨一</b><span>证据分级 · 语料出处</span><span class="e-glyph">印</span></a>
     </div>`;
+});
+
+/* ── 视图：意象星图 ────────────────────────────────────────── */
+route(/^\/starmap$/, async () => {
+  const net = (await getJSON("network.json")).imagery_network;
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("风雅集", "#/salon")}${sealHTML("意象星图")}</div>
+    <div class="starmap-wrap">
+      <div class="starmap-hint">同 篇 共 现 · 点 选 一 星</div>
+      <canvas id="star-cv"></canvas>
+    </div>
+    <div class="card star-info" id="star-info">
+      <div class="si-head"><span class="g">五十意象</span>
+        <span class="n">${net.edges.length} 条共现 · 点选星点查看</span></div>
+      <div class="si-edges" style="color:var(--ink-2);font-size:.86rem">
+        星点大小为该意象在 ${net.n_poems.toLocaleString()} 篇语料中的出现计量，
+        连线粗细为两意象同篇共现之数 —— 皆为 B 层确定性计量，可回源复算。</div>
+    </div>`;
+
+  const cv = document.getElementById("star-cv");
+  const info = document.getElementById("star-info");
+  const css = getComputedStyle(document.documentElement);
+  const C = name => css.getPropertyValue(name).trim();
+  const W = cv.parentElement.clientWidth;
+  const H = Math.min(Math.round(window.innerHeight * .62), W * 1.25);
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cv.style.height = H + "px";
+  const ctx = cv.getContext("2d");
+  ctx.scale(dpr, dpr);
+
+  /* 力导向布局（50 节点，一次性模拟） */
+  const idx = new Map(net.nodes.map((n, i) => [n.imagery, i]));
+  const maxCnt = Math.max(...net.nodes.map(n => n.count));
+  const nodes = net.nodes.map((n, i) => {
+    const ang = i * 2.399963;              // 黄金角散布
+    const r0 = 30 + 5.2 * Math.sqrt(i) * 8;
+    return { name: n.imagery, count: n.count,
+      r: 9 + 17 * Math.sqrt(n.count / maxCnt),
+      x: Math.cos(ang) * r0, y: Math.sin(ang) * r0, vx: 0, vy: 0 };
+  });
+  const maxW = Math.max(...net.edges.map(e => e.weight));
+  const edges = net.edges
+    .map(e => ({ a: idx.get(e.source), b: idx.get(e.target), w: e.weight }))
+    .filter(e => e.a != null && e.b != null);
+  for (let it = 0; it < 320; it++) {
+    const k = it < 200 ? .9 : .45;
+    for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+      const A = nodes[i], B = nodes[j];
+      let dx = B.x - A.x, dy = B.y - A.y;
+      let d2 = dx * dx + dy * dy || 1, d = Math.sqrt(d2);
+      const rep = 5200 / d2;
+      dx /= d; dy /= d;
+      A.vx -= dx * rep * k; A.vy -= dy * rep * k;
+      B.vx += dx * rep * k; B.vy += dy * rep * k;
+      const minD = A.r + B.r + 6;          // 防重叠
+      if (d < minD) {
+        const push = (minD - d) * .5;
+        A.vx -= dx * push; A.vy -= dy * push;
+        B.vx += dx * push; B.vy += dy * push;
+      }
+    }
+    for (const e of edges) {
+      const A = nodes[e.a], B = nodes[e.b];
+      let dx = B.x - A.x, dy = B.y - A.y;
+      const d = Math.sqrt(dx * dx + dy * dy) || 1;
+      const pull = (d - 70) * .015 * (0.3 + e.w / maxW) * k;
+      dx /= d; dy /= d;
+      A.vx += dx * pull * d * .02; A.vy += dy * pull * d * .02;
+      B.vx -= dx * pull * d * .02; B.vy -= dy * pull * d * .02;
+    }
+    for (const n of nodes) {
+      n.vx -= n.x * .012; n.vy -= n.y * .012;   // 向心
+      n.x += Math.max(-14, Math.min(14, n.vx));
+      n.y += Math.max(-14, Math.min(14, n.vy));
+      n.vx *= .5; n.vy *= .5;
+    }
+  }
+  /* 归一化到画布 */
+  const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
+  const pad = 34;
+  const sx = (W - pad * 2) / (Math.max(...xs) - Math.min(...xs));
+  const sy = (H - pad * 2) / (Math.max(...ys) - Math.min(...ys));
+  const s = Math.min(sx, sy), mx = Math.min(...xs), my = Math.min(...ys);
+  const ox = (W - (Math.max(...xs) - mx) * s) / 2;
+  const oy = (H - (Math.max(...ys) - my) * s) / 2;
+  for (const n of nodes) { n.x = (n.x - mx) * s + ox; n.y = (n.y - my) * s + oy; }
+
+  let selected = -1;
+  const neighbors = i => {
+    const out = [];
+    for (const e of edges) {
+      if (e.a === i) out.push({ n: e.b, w: e.w });
+      else if (e.b === i) out.push({ n: e.a, w: e.w });
+    }
+    return out.sort((p, q) => q.w - p.w);
+  };
+
+  function draw() {
+    const ink = C("--ink"), seal = C("--seal"), raise = C("--paper-raise");
+    ctx.clearRect(0, 0, W, H);
+    const nb = selected >= 0 ? new Set(neighbors(selected).map(o => o.n)) : null;
+    for (const e of edges) {
+      const active = selected < 0 || e.a === selected || e.b === selected;
+      const A = nodes[e.a], B = nodes[e.b];
+      ctx.beginPath();
+      ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y);
+      ctx.strokeStyle = (selected >= 0 && active) ? seal : ink;
+      ctx.globalAlpha = active ? .10 + .5 * (e.w / maxW) * (selected >= 0 ? 1.4 : 1) : .04;
+      ctx.lineWidth = .6 + 3.4 * (e.w / maxW);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      const active = selected < 0 || i === selected || (nb && nb.has(i));
+      ctx.globalAlpha = active ? 1 : .22;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+      ctx.fillStyle = i === selected ? seal : raise;
+      ctx.fill();
+      ctx.strokeStyle = i === selected ? seal : ink;
+      ctx.lineWidth = i === selected ? 2 : 1;
+      ctx.globalAlpha = active ? (i === selected ? 1 : .55) : .18;
+      ctx.stroke();
+      ctx.globalAlpha = active ? 1 : .3;
+      ctx.fillStyle = i === selected ? C("--seal-ink") : ink;
+      ctx.font = `${Math.max(11, n.r * .92)}px "LXGW WenKai", serif`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(n.name, n.x, n.y + 1);
+    }
+    ctx.globalAlpha = 1;
+  }
+  draw();
+
+  cv.addEventListener("click", ev => {
+    const rect = cv.getBoundingClientRect();
+    const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
+    let hit = -1;
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      if ((x - n.x) ** 2 + (y - n.y) ** 2 <= (n.r + 6) ** 2) { hit = i; break; }
+    }
+    selected = hit === selected ? -1 : hit;
+    draw();
+    if (selected >= 0) {
+      const n = nodes[selected];
+      const nbs = neighbors(selected).slice(0, 8);
+      info.innerHTML = `
+        <div class="si-head"><span class="g">${esc(n.name)}</span>
+          <span class="n">计量 ${n.count.toLocaleString()} 处</span>
+          <a class="go" href="#/imagery/${encodeURIComponent(n.name)}">展开档案 →</a></div>
+        <div class="si-edges">${nbs.map(o =>
+          `<a class="chip" href="#/imagery/${encodeURIComponent(nodes[o.n].name)}">${esc(nodes[o.n].name)} · 共现 ${o.w}</a>`).join("")}</div>`;
+    } else {
+      info.innerHTML = `
+        <div class="si-head"><span class="g">五十意象</span>
+          <span class="n">${edges.length} 条共现 · 点选星点查看</span></div>`;
+    }
+  });
+});
+
+/* ── 视图：收藏夹 ──────────────────────────────────────────── */
+route(/^\/fav$/, async () => {
+  const favs = getFavs();
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("风雅集", "#/salon")}${sealHTML("收藏夹")}</div>
+    <div class="masthead"><div><h1>私藏</h1><div class="sub">${favs.length} 首 · 存于此机</div></div></div>
+    <hr class="rule-double">
+    <div id="fav-list"></div>`;
+  const listEl = document.getElementById("fav-list");
+  const drawList = () => {
+    const cur = getFavs();
+    listEl.innerHTML = cur.length ? cur.map(f => `
+      <div class="fav-row" data-id="${esc(f.id)}">
+        ${poemRowHTML([f.id, f.t, f.a, f.d])}
+        <button class="rm" aria-label="移出收藏">✕</button>
+      </div>`).join("")
+      : `<div class="empty">笺 匣 尚 空<br><small style="letter-spacing:.1em">阅读时点「藏」即可收入</small></div>`;
+    listEl.querySelectorAll(".fav-row .rm").forEach(btn => btn.onclick = () => {
+      const id = btn.parentElement.dataset.id;
+      toggleFav({ id });
+      drawList();
+    });
+  };
+  drawList();
 });
 
 /* ── 视图：词牌 ────────────────────────────────────────────── */
@@ -670,7 +876,10 @@ route(/^\/poem\/([^/]+)$/, async (m, query) => {
   $view.innerHTML = `
     <div class="reader">
       <div class="reader-top">${backBtn("返回")}
-        <div class="r-tools"><button id="r-vert">竖排</button></div>
+        <div class="r-tools">
+          <button id="r-fav" class="${isFav(poem.id) ? "fav-on" : ""}">${isFav(poem.id) ? "已藏" : "藏"}</button>
+          <button id="r-vert">竖排</button>
+        </div>
       </div>
       <div class="poem-paper" id="paper">
         <div class="p-title">${esc(poem.t || "无题")}</div>
@@ -698,6 +907,11 @@ route(/^\/poem\/([^/]+)$/, async (m, query) => {
   document.getElementById("r-vert").onclick = e => {
     document.getElementById("paper").classList.toggle("vertical");
     e.target.classList.toggle("on");
+  };
+  document.getElementById("r-fav").onclick = e => {
+    const on = toggleFav({ id: poem.id, t: poem.t, a: poem.a, d: poem.d });
+    e.target.classList.toggle("fav-on", on);
+    e.target.textContent = on ? "已藏" : "藏";
   };
 });
 

@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 全部数据离线内置：不申请任何权限（含网络） -->
+    <!-- 全部数据离线内置。INTERNET 为 WebView 渲染进程运行所需
+         （缺失时部分 WebView 版本对拦截请求也报 net::ERR_CACHE_MISS），
+         App 自身不发起任何网络请求：资源均由 WebViewAssetLoader 本地供给 -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="true"

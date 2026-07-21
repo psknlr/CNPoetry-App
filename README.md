@@ -8,7 +8,7 @@
 | 应用名 | 墨一（Mo Yi） |
 | 包名 | `com.impfai.moyi` |
 | 馆藏 | 26,720 首作品 · 50 个意象档案 · 487 位诗人 · 578 个词牌 · 9 品题材 |
-| 权限 | **零权限**（含网络）—— 全部数据离线内置 |
+| 权限 | 仅 `INTERNET`（WebView 渲染进程运行所需，缺失会报 `net::ERR_CACHE_MISS`）—— App 不发起任何网络请求，全部数据离线内置 |
 | 最低系统 | Android 8.0（API 26） |
 
 ## 设计语言
@@ -28,6 +28,9 @@
 - **诗人档案** —— 小传（集内旁证 C 层）、惯用意象、体裁分布、存世作品全列表。
 - **词牌定格** —— 语料归纳句式与一致率（B 层计量，不冒称词谱权威），例词全量可读。
 - **题材九品** —— 定义、标志语汇、常见意象、归品作品。
+- **意象星图** —— 50 意象同篇共现网络（canvas 力导向布局），点选星点高亮邻接、
+  查看共现计量并一键跳转意象档案。
+- **收藏夹** —— 阅读器一键「藏」，私藏诗笺存于本机（localStorage）。
 - **飞花令** —— 以字为令；用户出句逐字校验「语料实有」，墨一应令句句可回源。
 - **阅读器** —— 宣纸双框卡片、竖排切换、注释/赏析折叠、篇中意象一键跳转意象档案。
 
@@ -55,6 +58,25 @@ python3 tools/export_app_data.py --hermes <CNPoetry-Hermes 根目录> \
 cd moyi && ./gradlew assembleDebug
 # 产物：app/build/outputs/apk/debug/app-debug.apk
 ```
+
+### Release 签名
+
+`moyi/keystore.properties` 与 `*.jks` 均被 gitignore，不入库。首次签名：
+
+```bash
+cd moyi
+keytool -genkeypair -keystore moyi-release.jks -alias moyi \
+    -keyalg RSA -keysize 2048 -validity 10000
+cat > keystore.properties <<'EOF'
+storeFile=moyi-release.jks
+storePassword=<你的密码>
+keyAlias=moyi
+keyPassword=<你的密码>
+EOF
+./gradlew assembleRelease   # 产物已签名：app/build/outputs/apk/release/app-release.apk
+```
+
+密钥库请妥善备份 —— 后续版本更新必须用同一把钥匙签名。
 
 前端可脱离 Android 环境直接预览：
 
