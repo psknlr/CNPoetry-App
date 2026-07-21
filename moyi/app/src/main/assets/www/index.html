@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#f4efe4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#131519" media="(prefers-color-scheme: dark)">
+<title>墨一</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app">
+  <main id="view" class="view" aria-live="polite"></main>
+
+  <nav id="tabbar" class="tabbar" aria-label="主导航">
+    <a class="tab" href="#/" data-tab="home">
+      <svg viewBox="0 0 24 24"><path d="M3 17l5.2-7.5L12 14l3-4.5L21 17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="17.2" cy="6.4" r="1.9" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+      <span>今日</span>
+    </a>
+    <a class="tab" href="#/imagery" data-tab="imagery">
+      <svg viewBox="0 0 24 24"><path d="M18.6 3.6a9 9 0 1 0 1.8 12.6A7.2 7.2 0 0 1 18.6 3.6z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      <span>意象</span>
+    </a>
+    <a class="tab" href="#/lib" data-tab="lib">
+      <svg viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M5 4v13a3 3 0 0 0 3 3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9.5 9h6M9.5 13h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <span>文库</span>
+    </a>
+    <a class="tab" href="#/poets" data-tab="poets">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 20c.8-4 3.4-6 6.5-6s5.7 2 6.5 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <span>诗人</span>
+    </a>
+    <a class="tab" href="#/salon" data-tab="salon">
+      <svg viewBox="0 0 24 24"><path d="M7 4h10l-1.2 6a4 4 0 0 1-7.6 0z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M12 14v4m-3.6 2h7.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <span>雅集</span>
+    </a>
+  </nav>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

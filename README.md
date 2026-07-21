@@ -1,1 +1,71 @@
-# CNPoetry-App
+# 墨一 · Mo Yi
+
+**一墨藏万象** —— 基于 [CNPoetry-Hermes（诗海赫尔墨斯）](https://github.com/psknlr/CNPoetry-Hermes)
+规则挖掘流水线的 **离线中华古典诗词档案馆 Android App**。
+
+| | |
+|---|---|
+| 应用名 | 墨一（Mo Yi） |
+| 包名 | `com.impfai.moyi` |
+| 馆藏 | 26,720 首作品 · 50 个意象档案 · 487 位诗人 · 578 个词牌 · 9 品题材 |
+| 权限 | **零权限**（含网络）—— 全部数据离线内置 |
+| 最低系统 | Android 8.0（API 26） |
+
+## 设计语言
+
+宣纸 × 松烟墨 × 朱砂印。界面以宣纸暖底、松烟墨字、朱砂印章为骨，
+文武线、卷号（卷一/卷二）、竖排印章等传统书籍装帧元素贯穿全 App；
+内置霞鹜文楷（OFL 许可）按 unicode-range 懒加载；深浅双主题随系统切换。
+
+## 功能
+
+- **今日一诗** —— 按日期从馆藏轮换，展卷即读。
+- **意象档案** —— 50 个意象：字形封面、异形词、情感光谱（支撑数计量 + 例句回源）、
+  常见并置（可跳转）、朝代分布；**例证长卷**列出全部例证诗句，可过滤、
+  逐条点击进入全诗并朱砂高亮命中句。
+- **文库检索** —— 全文 / 题目 / 作者三种模式，简繁折叠（OpenCC 单字表）逐字检索；
+  集部书架按 14 部集子浏览。
+- **诗人档案** —— 小传（集内旁证 C 层）、惯用意象、体裁分布、存世作品全列表。
+- **词牌定格** —— 语料归纳句式与一致率（B 层计量，不冒称词谱权威），例词全量可读。
+- **题材九品** —— 定义、标志语汇、常见意象、归品作品。
+- **飞花令** —— 以字为令；用户出句逐字校验「语料实有」，墨一应令句句可回源。
+- **阅读器** —— 宣纸双框卡片、竖排切换、注释/赏析折叠、篇中意象一键跳转意象档案。
+
+一切结论遵循流水线的证据法则：**无原文，不成论断；无篇目，不成证据** ——
+App 内每一条意象-情感联系、每一条例证、每一句飞花令应对，点击即达原诗。
+
+## 目录结构
+
+```
+moyi/                     Android 工程（Kotlin + WebView + WebViewAssetLoader）
+  app/src/main/assets/www/    前端（零依赖 SPA）+ 数据 + 字体
+tools/export_app_data.py  从 CNPoetry-Hermes 流水线产物导出 App 静态数据
+CNPoetry-Hermes-main (5).zip  原始流水线代码与语料
+```
+
+## 构建
+
+```bash
+# 1.（可选）重新生成数据：解压 zip 后运行流水线，再导出
+python3 -m hermes_poetry pipeline          # 在 CNPoetry-Hermes 根目录
+python3 tools/export_app_data.py --hermes <CNPoetry-Hermes 根目录> \
+    --out moyi/app/src/main/assets/www/data
+
+# 2. 构建 APK（或直接用 Android Studio 打开 moyi/）
+cd moyi && ./gradlew assembleDebug
+# 产物：app/build/outputs/apk/debug/app-debug.apk
+```
+
+前端可脱离 Android 环境直接预览：
+
+```bash
+cd moyi/app/src/main/assets/www && python3 -m http.server 8765
+# 打开 http://127.0.0.1:8765/index.html
+```
+
+## 致谢与许可
+
+语料：[chinese-poetry](https://github.com/chinese-poetry/chinese-poetry) ·
+规则：CNPoetry-Hermes（MIT）· 简繁折叠：OpenCC 字表 ·
+字体：[霞鹜文楷](https://github.com/lxgw/LxgwWenKai)（SIL OFL 1.1）·
+研发：医哲未来人工智能研究院（IMPF-AI）

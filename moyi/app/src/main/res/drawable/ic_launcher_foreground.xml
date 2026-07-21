@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- 墨圆（一笔环，留飞白缺口） -->
+    <path
+        android:pathData="M54,29 A25,25 0 1,0 73,37"
+        android:strokeColor="#262A2E"
+        android:strokeWidth="7.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+    <!-- 朱砂印 -->
+    <path
+        android:fillColor="#A8382A"
+        android:pathData="M62,60 h15 a2.5,2.5 0 0 1 2.5,2.5 v15 a2.5,2.5 0 0 1 -2.5,2.5 h-15 a2.5,2.5 0 0 1 -2.5,-2.5 v-15 a2.5,2.5 0 0 1 2.5,-2.5 Z" />
+    <!-- 印文「一」 -->
+    <path
+        android:strokeColor="#F8F0E3"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M64.5,70 h10" />
+</vector>
