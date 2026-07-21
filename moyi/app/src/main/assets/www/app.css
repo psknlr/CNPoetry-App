@@ -305,15 +305,91 @@ button {
 .p-meta { text-align: center; color: var(--ink-2); font-size: .84rem; letter-spacing: .2em; margin: 6px 0 4px; }
 .p-tags { text-align: center; margin-bottom: 14px; }
 .p-tags .t { display: inline-block; font-size: .7rem; color: var(--ink-3); border: 1px solid var(--hairline); border-radius: 4px; padding: 0 6px; margin: 2px 3px; letter-spacing: .1em; }
-.p-lines { font-size: 1.13rem; line-height: 2.3; letter-spacing: .08em; text-align: center; }
+.p-scroll { overflow: hidden; }
+.p-lines { font-size: 1.13rem; line-height: 2.3; letter-spacing: .08em; text-align: center; overflow-wrap: anywhere; }
 .p-lines .ln.hl { color: var(--seal); font-weight: 700; }
+.p-lines .zc { cursor: pointer; }
+.p-lines .rf-foot { color: var(--dai); }
 .p-seal { position: absolute; right: 20px; bottom: 20px; opacity: .9; }
 
-/* 竖排 */
+/* 竖排：内容在固定高度容器内成列，超出部分框内左右滑动，绝不溢出卡片 */
+.poem-paper.vertical .p-scroll {
+  overflow-x: auto; overflow-y: hidden;
+  height: min(52vh, 440px);
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
 .poem-paper.vertical .p-lines {
   writing-mode: vertical-rl; text-align: start;
-  margin: 10px auto 0; max-height: 62vh; overflow-x: auto; overflow-y: hidden;
-  line-height: 2.6; display: block; direction: ltr;
+  height: 100%; width: max-content; min-width: 100%;
+  margin: 0; line-height: 2.5; direction: ltr;
+  display: block; padding: 0 2px;
+}
+
+/* 平仄注音（律）：ruby 注于字上/字右 */
+.p-lines ruby { ruby-position: over; }
+.p-lines rt {
+  font-size: .5em; color: var(--ink-3); letter-spacing: 0;
+  font-family: inherit; user-select: none;
+}
+.p-lines .rt-ping rt { color: var(--dai); }
+.p-lines .rt-ze rt { color: var(--seal); }
+
+/* 格律摘要 */
+.metric-sum { font-size: .84rem; color: var(--ink-2); letter-spacing: .08em; line-height: 2; }
+.metric-sum .foot-tag {
+  display: inline-block; margin: 0 6px 4px 0; padding: 0 8px;
+  border: 1px solid var(--hairline-2); border-radius: 6px; color: var(--dai);
+}
+.legend { font-size: .74rem; color: var(--ink-3); letter-spacing: .1em; }
+
+/* 字义弹层 */
+.sheet-mask {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(20, 16, 12, .35);
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+  animation: fadein .2s;
+}
+@keyframes fadein { from { opacity: 0; } }
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 61;
+  max-width: 640px; margin: 0 auto;
+  background: var(--paper-raise); border: 1px solid var(--hairline);
+  border-radius: 18px 18px 0 0; box-shadow: 0 -8px 40px rgba(0,0,0,.18);
+  padding: 18px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+  max-height: 72vh; overflow-y: auto;
+  animation: sheetup .26s cubic-bezier(.2,.7,.2,1);
+}
+@keyframes sheetup { from { transform: translateY(40%); opacity: .4; } }
+.sheet .zi-head { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+.sheet .zi-big {
+  width: 64px; height: 64px; flex: none; border-radius: 12px;
+  background: var(--paper-sink); border: 1px solid var(--hairline);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 2.2rem;
+}
+.sheet .zi-meta { font-size: .84rem; color: var(--ink-2); line-height: 1.8; }
+.sheet .zi-meta b { color: var(--ink); }
+.sheet h4 { margin: 12px 0 4px; font-size: .84rem; letter-spacing: .3em; color: var(--ink-2); font-weight: 700; }
+.sheet .zi-gloss { font-size: .92rem; color: var(--ink-2); line-height: 1.9; }
+.sheet .reading-row { display: flex; gap: 10px; font-size: .88rem; color: var(--ink-2); padding: 3px 0; }
+.sheet .reading-row .yun { color: var(--dai); font-weight: 700; }
+.sheet .note { margin-top: 12px; font-size: .72rem; color: var(--ink-3); letter-spacing: .08em; }
+
+/* 韵部 */
+.rhyme-members { line-height: 2.2; letter-spacing: .35em; font-size: 1.02rem; }
+.rhyme-members .hitc { color: var(--seal); font-weight: 700; }
+
+/* 星图控件 */
+.starmap-wrap canvas { touch-action: none; }
+.star-ctl {
+  position: absolute; right: 10px; bottom: 10px; display: flex; gap: 6px;
+}
+.star-ctl button {
+  width: 34px; height: 34px; border-radius: 9px;
+  background: color-mix(in srgb, var(--paper-raise) 85%, transparent);
+  border: 1px solid var(--hairline-2); color: var(--ink-2); font-size: 1rem;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
 }
 
 .fold { border-top: 1px solid var(--hairline); }

@@ -87,6 +87,11 @@ def main() -> int:
             rec["emo"] = p["emotions"]
         if p.get("themes"):
             rec["thm"] = p["themes"]
+        met = p.get("metrics") or {}
+        if met.get("form_metric") or met.get("rhyme_feet"):
+            rec["m"] = {k: v for k, v in
+                        (("fm", met.get("form_metric")), ("rf", met.get("rhyme_feet")))
+                        if v}
         shards[shard_of(rec["id"])].append(rec)
         by_id[rec["id"]] = rec
         # 目录行：id|题|作者|朝代|集|体裁|词牌|检索文本(简体折叠)
@@ -167,6 +172,67 @@ def main() -> int:
         if f.exists():
             network[stem] = json.loads(f.read_text(encoding="utf-8"))
     total += dump(out / "network.json", network)
+
+    # ── 广韵字音（平仄三值 + 读音候选，简繁双键）────────────────
+    from hermes_poetry.extract.phonology import Phonology
+    ph = Phonology()
+    gy = {}
+    for ch, rs in ph.readings.items():
+        tones = {r["tone"] for r in rs}
+        t = "两" if ("平" in tones and (tones - {"平"})) else ("平" if "平" in tones else "仄")
+        gy[ch] = [t, [[r["yun"], r["tone"], r["fanqie"]] for r in rs[:4]]]
+    total += dump(out / "guangyun.json", gy)
+    print(f"广韵字音 {len(gy)} 键（含简繁双索引）")
+
+    # ── 说文解字训诂（简繁双键；繁体原键优先）───────────────────
+    shuowen = hermes / "data" / "raw" / "gujilab" / "shuowen.jsonl"
+    gloss = {}
+    if shuowen.exists():
+        for r in read_jsonl(shuowen):
+            entry = [r.get("radical", ""), r.get("pinyin", ""),
+                     r.get("fanqie", ""), r.get("gloss", "")]
+            ch = r.get("char", "")
+            if not ch:
+                continue
+            gloss.setdefault(ch, entry)
+            folded = t2s(ch)
+            if folded != ch:
+                gloss.setdefault(folded, entry)
+        total += dump(out / "gloss.json", gloss)
+    print(f"说文训诂 {len(gloss)} 键")
+
+    # ── 韵伴聚类（语料归纳，非韵书权威）─────────────────────────
+    rhyme_file = poetry / "rules_rhyme" / "rhyme_partners.jsonl"
+    rhyme_groups = []
+    if rhyme_file.exists():
+        for g in read_jsonl(rhyme_file):
+            rhyme_groups.append({
+                "label": g.get("label", ""),
+                "members": g.get("members") or [],
+                "supporting_poems": (g.get("supporting_poems") or [])[:60],
+                "n_poems": len(g.get("supporting_poems") or [])})
+        rhyme_groups.sort(key=lambda r: -len(r["members"]))
+        total += dump(out / "rhyme_groups.json", rhyme_groups)
+    print(f"韵伴聚类 {len(rhyme_groups)} 组")
+
+    # ── 互文索引（按诗分片，双向）────────────────────────────────
+    itx_file = poetry / "rules_intertext" / "intertext_rules.jsonl"
+    if itx_file.exists():
+        itx_map: dict = {}
+        for r in read_jsonl(itx_file):
+            a, b = r.get("source_poem_id"), r.get("target_poem_id")
+            span, mode = r.get("shared_span", ""), r.get("mode", "")
+            if not a or not b:
+                continue
+            itx_map.setdefault(a, []).append([b, span, mode])
+            itx_map.setdefault(b, []).append([a, span, mode])
+        itx_shards = [dict() for _ in range(N_SHARDS)]
+        for pid, links in itx_map.items():
+            links.sort(key=lambda x: -len(x[1]))
+            itx_shards[shard_of(pid)][pid] = links[:12]
+        for i, sh in enumerate(itx_shards):
+            total += dump(out / "intertext" / f"itx_{i:02d}.json", sh)
+        print(f"互文索引 {len(itx_map)} 篇 → {N_SHARDS} 分片")
 
     # ── 简繁折叠表（前端检索归一用）──────────────────────────────
     from hermes_poetry.textutil import _t2s_table, _VARIANT_MAP
