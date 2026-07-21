@@ -19,8 +19,8 @@ android {
         applicationId = "com.impfai.moyi"
         minSdk = 26   // 自适应图标（anydpi-v26），免除多密度位图
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.1.1"
     }
 
     signingConfigs {

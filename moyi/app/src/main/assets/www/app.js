@@ -17,12 +17,35 @@ const hanNum = n => n <= 10 ? (n === 10 ? "十" : HAN_NUM[n - 1])
 
 /* ── 数据层 ───────────────────────────────────────────────── */
 const _cache = new Map();
+let _xhrFails = 0;
+/* XHR 而非 fetch：file:///android_asset 主路径下 fetch 受 CORS 限制，
+   XHR 配合 allowFileAccessFromFileURLs 可读同源资源（file:// 成功时
+   status 为 0）。连续失败则通知宿主切换到环回服务器兜底。 */
+function xhrJSON(path) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open("GET", "data/" + path, true);
+    x.onload = () => {
+      const ok = (x.status === 200 || x.status === 0) && x.responseText;
+      if (!ok) return fail(new Error(path + " → " + x.status));
+      try { _xhrFails = 0; resolve(JSON.parse(x.responseText)); }
+      catch (e) { fail(e); }
+    };
+    x.onerror = () => fail(new Error(path + " → 网络层失败"));
+    const fail = e => {
+      _xhrFails += 1;
+      if (_xhrFails >= 2 && location.protocol === "file:" &&
+          window.MoYiBridge && window.MoYiBridge.assetsUnreachable) {
+        try { window.MoYiBridge.assetsUnreachable(); } catch { /* 忽略 */ }
+      }
+      reject(e);
+    };
+    x.send();
+  });
+}
 function getJSON(path) {
   if (!_cache.has(path)) {
-    _cache.set(path, fetch("data/" + path).then(r => {
-      if (!r.ok) throw new Error(path + " → " + r.status);
-      return r.json();
-    }).catch(e => { _cache.delete(path); throw e; }));
+    _cache.set(path, xhrJSON(path).catch(e => { _cache.delete(path); throw e; }));
   }
   return _cache.get(path);
 }
