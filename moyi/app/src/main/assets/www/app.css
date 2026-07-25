@@ -380,6 +380,41 @@ button {
 .rhyme-members { line-height: 2.2; letter-spacing: .35em; font-size: 1.02rem; }
 .rhyme-members .hitc { color: var(--seal); font-weight: 700; }
 
+/* ── 创作实验室 ───────────────────────────────────────────── */
+.pu-line { display: flex; align-items: baseline; gap: 10px; padding: 5px 0; }
+.pu-line .pu-txt { font-size: .72rem; color: var(--ink-3); letter-spacing: .04em; white-space: nowrap; }
+.pu-line .pu-sym { font-size: 1.06rem; letter-spacing: .35em; white-space: nowrap; }
+.pu-line .pu-sym .yjiao { color: var(--dai); font-weight: 700; }
+.pu-line .pu-no { flex: none; width: 2em; color: var(--ink-3); font-size: .74rem; }
+.pu-pattern { font-size: 1.05rem; line-height: 2.15; letter-spacing: .3em; white-space: pre-wrap; }
+.pu-pattern .rk { color: var(--dai); font-weight: 700; }
+.compose-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.compose-grid .seg { margin: 0; }
+
+.draft-box {
+  width: 100%; min-height: 150px; resize: vertical;
+  background: var(--paper-sink); border: 1px solid var(--hairline);
+  border-radius: 12px; padding: 12px 14px; font: inherit; color: var(--ink);
+  font-size: 1rem; line-height: 2; letter-spacing: .05em; outline: none;
+}
+.check-line { padding: 8px 0; border-bottom: 1px dashed var(--hairline); }
+.check-line:last-child { border-bottom: none; }
+.check-line .cl-text { font-size: 1.1rem; letter-spacing: .1em; line-height: 2.2; }
+.check-line .cl-text .viol { color: var(--seal); border-bottom: 2px solid var(--seal); }
+.check-line .cl-tmpl { font-size: .76rem; color: var(--ink-3); letter-spacing: .28em; }
+.verdict { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 2px; }
+.verdict .v {
+  padding: 3px 12px; border-radius: 999px; font-size: .8rem; letter-spacing: .1em;
+  border: 1px solid var(--hairline-2); color: var(--ink-2);
+}
+.verdict .v.ok { color: var(--dai); border-color: color-mix(in srgb, var(--dai) 50%, transparent); }
+.verdict .v.bad { color: var(--seal); border-color: color-mix(in srgb, var(--seal) 50%, transparent); }
+
+.yun-chars { line-height: 2.1; letter-spacing: .3em; font-size: 1rem; color: var(--ink-2); }
+.yun-head { display: flex; align-items: baseline; gap: 10px; }
+.yun-head b { font-size: 1.05rem; letter-spacing: .1em; }
+.yun-head span { font-size: .74rem; color: var(--ink-3); }
+
 /* 星图控件 */
 .starmap-wrap canvas { touch-action: none; }
 .star-ctl {

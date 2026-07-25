@@ -234,6 +234,51 @@ def main() -> int:
             total += dump(out / "intertext" / f"itx_{i:02d}.json", sh)
         print(f"互文索引 {len(itx_map)} 篇 → {N_SHARDS} 分片")
 
+    # ── 龙榆生《唐宋词格律》词谱（权威层，153 调）────────────────
+    cipu_file = hermes / "data" / "raw" / "longyusheng" / "cipu.jsonl"
+    if cipu_file.exists():
+        cipu_all = list(read_jsonl(cipu_file))
+        total += dump(out / "cipu.json", cipu_all)
+        print(f"龙谱词谱 {len(cipu_all)} 调")
+
+    # ── 韵书（平水韵 106 部 / 词林正韵 19 部，常用字按语料频次）──
+    from hermes_poetry.extract.phonology import (
+        GY_TO_PINGSHUI, _CILIN, CILIN_NOTE)
+    freq: dict = {}
+    for row in catalog:
+        for ch2 in row[7]:
+            freq[ch2] = freq.get(ch2, 0) + 1
+    ps_chars: dict = {}
+    ps_tone: dict = {}
+    for ch2, (t2, readings) in gy.items():
+        folded_ch = t2s(ch2)
+        if freq.get(folded_ch, 0) < 1:
+            continue
+        for yun, tone, _fq in readings:
+            ps = GY_TO_PINGSHUI.get(yun)
+            if not ps:
+                continue
+            ps_tone.setdefault(ps, tone)
+            ps_chars.setdefault(ps, set()).add(folded_ch)
+    SHANGPING = set("东冬江支微鱼虞齐佳灰真文元寒删")
+    pingshui = []
+    for ps, chars in ps_chars.items():
+        tone = ps_tone.get(ps, "")
+        group = ("上平" if ps in SHANGPING else "下平") if tone == "平" else tone
+        ordered = sorted(chars, key=lambda c: -freq.get(c, 0))[:120]
+        pingshui.append({"yun": ps, "tone": tone, "group": group,
+                         "chars": "".join(ordered)})
+    tone_order = {"平": 0, "上": 1, "去": 2, "入": 3}
+    pingshui.sort(key=lambda r: (tone_order.get(r["tone"], 9), r["yun"]))
+    total += dump(out / "rhymebook.json", {
+        "gy2ps": GY_TO_PINGSHUI,
+        "pingshui": pingshui,
+        "cilin": {bu: list(pss) for bu, pss in _CILIN.items()},
+        "cilin_note": CILIN_NOTE,
+        "note": "平水韵由《广韵》206 韵规范合并推导；各韵常用字按本馆语料频次排序，"
+                "多音字可入多韵（与「两读」同一诚实口径）。"})
+    print(f"韵书：平水 {len(pingshui)} 韵 · 词林 {len(_CILIN)} 部")
+
     # ── 简繁折叠表（前端检索归一用）──────────────────────────────
     from hermes_poetry.textutil import _t2s_table, _VARIANT_MAP
     fold = {chr(k): v for k, v in _t2s_table().items()}
