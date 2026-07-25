@@ -279,12 +279,83 @@ def main() -> int:
                 "多音字可入多韵（与「两读」同一诚实口径）。"})
     print(f"韵书：平水 {len(pingshui)} 韵 · 词林 {len(_CILIN)} 部")
 
+    # ── 文苑：古文观止（含辞赋名篇；散文不入格律计量层）─────────
+    extra = hermes / "data" / "raw" / "extra"
+    gwgz_file = extra / "guwenguanzhi.json"
+    if gwgz_file.exists():
+        gw = json.loads(gwgz_file.read_text(encoding="utf-8"))
+        prose, pid = [], 0
+        for juan in gw.get("content") or []:
+            jt = juan.get("title", "")
+            era = jt.split("・")[-1] if "・" in jt else ""
+            for art in juan.get("content") or []:
+                pid += 1
+                author_raw = (art.get("author") or "").strip()
+                dyn, name = "", author_raw
+                if "：" in author_raw:
+                    dyn, name = [s.strip() for s in author_raw.split("：", 1)]
+                title = art.get("chapter", "")
+                genre = ("赋" if ("賦" in title or "赋" in title)
+                         else "序" if title.endswith(("序",))
+                         else "记" if title.endswith(("記", "记"))
+                         else "论" if title.endswith(("論", "论"))
+                         else "书" if title.endswith(("書", "书"))
+                         else "文")
+                prose.append({
+                    "id": f"GWGZ_{pid:03d}", "t": title, "a": name, "d": dyn,
+                    "juan": jt, "era": era, "g": genre,
+                    "src": art.get("source", ""),
+                    "p": art.get("paragraphs") or []})
+        total += dump(out / "prose.json", prose)
+        n_fu = sum(1 for r in prose if r["g"] == "赋")
+        print(f"文苑（古文观止）{len(prose)} 篇 · 赋 {n_fu} 篇")
+
+    # ── 对课：声律启蒙（按平水三十平韵分编）──────────────────────
+    slqm_file = extra / "shenglvqimeng.json"
+    if slqm_file.exists():
+        sl = json.loads(slqm_file.read_text(encoding="utf-8"))
+        duike = []
+        for vol in sl.get("content") or []:
+            for ch in vol.get("content") or []:
+                chap = ch.get("chapter", "")
+                yun = t2s(chap.split()[-1]) if chap else ""
+                duike.append({"vol": vol.get("title", ""), "chapter": chap,
+                              "yun": yun, "paras": ch.get("paragraphs") or []})
+        total += dump(out / "duike.json", {
+            "title": sl.get("title", "声律启蒙"), "author": sl.get("author", ""),
+            "abstract": sl.get("abstract", ""), "chapters": duike})
+        print(f"对课（声律启蒙）{len(duike)} 韵")
+
     # ── 简繁折叠表（前端检索归一用）──────────────────────────────
     from hermes_poetry.textutil import _t2s_table, _VARIANT_MAP
     fold = {chr(k): v for k, v in _t2s_table().items()}
     fold.update({chr(k): v for k, v in _VARIANT_MAP.items()})
     total += dump(out / "t2s.json", fold)
     print(f"简繁折叠表 {len(fold)} 字")
+
+    # ── 分层书架：朝代 → 集部（含体裁构成与子目数）─────────────
+    DYN_ORDER = ["先秦", "汉魏", "唐", "五代", "宋", "元", "明", "清", "未知"]
+    shelf: dict = {}
+    for row in catalog:
+        d, b, g, a, t = row[3], row[4], row[5], row[2], row[1]
+        e = shelf.setdefault(d, {}).setdefault(b, {"n": 0, "genres": {}, "subs": set()})
+        e["n"] += 1
+        e["genres"][g] = e["genres"].get(g, 0) + 1
+        # 子目：元曲取剧目名（「剧目・曲牌」），其余取作者
+        sub = t.split("・")[0] if ("・" in t and b == "元曲") else a
+        if sub:
+            e["subs"].add(sub)
+    shelves = []
+    for d in DYN_ORDER + [x for x in shelf if x not in DYN_ORDER]:
+        if d not in shelf:
+            continue
+        books = [{"book": b, "n": v["n"], "n_subs": len(v["subs"]),
+                  "genres": sorted(v["genres"].items(), key=lambda x: -x[1])[:4]}
+                 for b, v in sorted(shelf[d].items(), key=lambda x: -x[1]["n"])]
+        shelves.append({"era": d, "n": sum(b["n"] for b in books), "books": books})
+    total += dump(out / "shelves.json", shelves)
+    print(f"分层书架 {len(shelves)} 朝代 · "
+          f"{sum(len(s['books']) for s in shelves)} 集部")
 
     dyn_count, book_count = {}, {}
     for row in catalog:

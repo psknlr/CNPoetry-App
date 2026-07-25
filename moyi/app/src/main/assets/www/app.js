@@ -126,7 +126,8 @@ async function render() {
       t === (["", "poem"].includes(tab) ? "home" : tab) ||
       (t === "home" && path === "/") ||
       (t === "imagery" && tab === "imagery") ||
-      (t === "salon" && ["salon", "cipai", "theme", "feihua", "about", "starmap", "fav", "rhyme", "compose"].includes(tab)) ||
+      (t === "salon" && ["salon", "cipai", "theme", "feihua", "about", "starmap", "fav", "rhyme", "compose", "prose", "duike", "matrix"].includes(tab)) ||
+      (t === "lib" && ["lib", "search"].includes(tab)) ||
       (t === "poets" && tab === "poet"));
   });
   for (const { pattern, fn } of routes) {
@@ -235,7 +236,7 @@ route(/^\/$/, async () => {
     ${kicker(2, "馆藏四门")}
     <div class="entry-grid">
       <a class="entry" href="#/imagery"><b>意象档案</b><span>五十意象 · 情感光谱 · 全量例证</span><span class="e-glyph">月</span></a>
-      <a class="entry" href="#/lib"><b>文库检索</b><span>题目 · 作者 · 全文逐字</span><span class="e-glyph">检</span></a>
+      <a class="entry" href="#/lib"><b>文库检索</b><span>集部书架 · 全文逐字 · 高级检索</span><span class="e-glyph">检</span></a>
       <a class="entry" href="#/poets"><b>诗人档案</b><span>小传 · 惯用意象 · 体裁分布</span><span class="e-glyph">人</span></a>
       <a class="entry" href="#/salon"><b>风雅集</b><span>词牌定格 · 题材九品 · 飞花令</span><span class="e-glyph">令</span></a>
     </div>
@@ -367,9 +368,18 @@ route(/^\/imagery\/([^/]+)(?:\/(evi))?$/, async (m) => {
   }
 });
 
-/* ── 视图：文库（书架 + 检索） ─────────────────────────────── */
+/* ── 视图：文库（分层书架 + 专业检索） ─────────────────────── */
+const SEARCH_HIST_KEY = "moyi_search_hist";
+const searchHist = () => { try { return JSON.parse(localStorage.getItem(SEARCH_HIST_KEY) || "[]"); } catch { return []; } };
+function pushHist(q) {
+  if (!q) return;
+  const h = searchHist().filter(x => x !== q);
+  h.unshift(q);
+  try { localStorage.setItem(SEARCH_HIST_KEY, JSON.stringify(h.slice(0, 12))); } catch { /* 忽略 */ }
+}
+
 route(/^\/lib$/, async (_m, query) => {
-  const stats = await getJSON("stats.json");
+  const [stats, shelves] = await Promise.all([getJSON("stats.json"), getJSON("shelves.json")]);
   $view.innerHTML = `
     <div class="masthead">
       <div><h1>文库</h1><div class="sub">${stats.poems.toLocaleString()} 首 · 逐字可检</div></div>
@@ -377,10 +387,13 @@ route(/^\/lib$/, async (_m, query) => {
     </div>
     <hr class="rule-double">
     ${searchboxHTML("lib-q", "检索全文 / 题目 / 作者 …")}
-    <div id="lib-mode" class="seg" style="display:none">
-      <button data-m="text" class="on">全文</button>
-      <button data-m="t">题目</button>
-      <button data-m="a">作者</button>
+    <div class="compose-grid" style="grid-template-columns:1fr auto;align-items:center;margin-bottom:10px">
+      <div id="lib-mode" class="seg" style="display:none;margin:0">
+        <button data-m="text" class="on">全文</button>
+        <button data-m="t">题目</button>
+        <button data-m="a">作者</button>
+      </div>
+      <a class="btn" href="#/search" style="white-space:nowrap">高级检索 →</a>
     </div>
     <div id="lib-body"></div>`;
 
@@ -389,29 +402,32 @@ route(/^\/lib$/, async (_m, query) => {
   const input = document.getElementById("lib-q");
   let mode = "text";
 
-  const shelves = () => {
+  const drawShelves = () => {
     modeSeg.style.display = "none";
+    const hist = searchHist();
     body.innerHTML = `
-      ${kicker(1, "集部书架")}
-      ${Object.entries(stats.books).map(([b, n]) => `
-        <a class="card tappable" style="display:flex;align-items:baseline;gap:12px;padding:14px 18px"
-           href="#/lib?book=${encodeURIComponent(b)}">
-          <b style="font-size:1.02rem;letter-spacing:.12em">${esc(b)}</b>
-          <span style="margin-left:auto;color:var(--ink-3);font-size:.78rem">${n.toLocaleString()} 首 →</span>
-        </a>`).join("")}`;
-  };
-
-  const listBook = async book => {
-    modeSeg.style.display = "none";
-    body.innerHTML = `<div class="loading">展 卷 中 …</div>`;
-    const { rows } = await catalog();
-    const hits = rows.filter(r => r[4] === book);
-    body.innerHTML = `${kicker(1, book, hits.length.toLocaleString() + " 首")}<div id="bk"></div>`;
-    progressiveList(document.getElementById("bk"), hits, r => poemRowHTML(r), 60);
+      ${hist.length ? `${kicker(1, "近期检索")}
+        <div class="card">${hist.map(q =>
+          `<button class="chip hist-q">${esc(q)}</button>`).join("")}</div>` : ""}
+      ${kicker(hist.length ? 2 : 1, "集部书架", shelves.length + " 朝 · " +
+        shelves.reduce((s, e) => s + e.books.length, 0) + " 集")}
+      ${shelves.map(era => `
+        <div class="era-block">
+          <div class="era-head"><b>${esc(era.era)}</b><span>${era.n.toLocaleString()} 首</span></div>
+          ${era.books.map(b => `
+            <a class="shelf-row" href="#/lib/book/${encodeURIComponent(b.book)}">
+              <span class="sb-name">${esc(b.book)}</span>
+              <span class="sb-meta">${b.genres.map(([g, n]) => esc(g) + " " + n).join(" · ")}</span>
+              <span class="sb-n">${b.n.toLocaleString()} 首 →</span>
+            </a>`).join("")}
+        </div>`).join("")}`;
+    body.querySelectorAll(".hist-q").forEach(b => b.onclick = () => {
+      input.value = b.textContent; search(b.textContent);
+    });
   };
 
   let tok = 0;
-  const search = async q => {
+  async function search(q) {
     modeSeg.style.display = "flex";
     const my = ++tok;
     body.innerHTML = `<div class="loading">逐 字 检 索 中 …</div>`;
@@ -424,12 +440,15 @@ route(/^\/lib$/, async (_m, query) => {
       if (mode === "text" ? r[7].includes(fq)
         : mode === "t" ? fold(r[1]).includes(fq)
         : fold(r[2]).includes(fq)) hits.push(r);
-      if (hits.length >= 2000) break;
+      if (hits.length >= 3000) break;
     }
     if (my !== tok) return;
-    body.innerHTML = `${kicker(1, "检得", hits.length + (hits.length >= 2000 ? "+" : "") + " 首")}<div id="sr"></div>`;
-    progressiveList(document.getElementById("sr"), hits, r => poemRowHTML(r), 60);
-  };
+    pushHist(q);
+    body.innerHTML = `${kicker(1, "检得", hits.length + (hits.length >= 3000 ? "+" : "") + " 首")}
+      <div id="sr"></div>`;
+    progressiveList(document.getElementById("sr"),
+      hits, r => poemRowHTML(r, mode === "text" ? snippetOf(r, fq) : ""), 60);
+  }
 
   modeSeg.querySelectorAll("button").forEach(b => b.onclick = () => {
     modeSeg.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
@@ -440,11 +459,348 @@ route(/^\/lib$/, async (_m, query) => {
   input.oninput = () => {
     clearTimeout(timer);
     const q = input.value.trim();
-    if (!q) { shelves(); return; }
+    if (!q) { drawShelves(); return; }
     timer = setTimeout(() => search(q), 260);
   };
 
-  if (query.book) { await listBook(query.book); } else shelves();
+  if (query.book) { location.replace("#/lib/book/" + encodeURIComponent(query.book)); return; }
+  drawShelves();
+});
+
+/* 命中摘要：折叠索引里定位命中，回切原文近旁 20 字 */
+function snippetOf(row, fq) {
+  const i = row[7].indexOf(fq);
+  if (i < 0) return "";
+  const from = Math.max(0, i - 8), to = Math.min(row[7].length, i + fq.length + 12);
+  const seg = row[7].slice(from, to);
+  const k = seg.indexOf(fq);
+  return `${from > 0 ? "…" : ""}${esc(seg.slice(0, k))}<span style="color:var(--seal)">${esc(fq)}</span>${esc(seg.slice(k + fq.length))}${to < row[7].length ? "…" : ""}`;
+}
+
+/* ── 视图：集部（子目筛选 / 体裁 / 作者）─────────────────────── */
+route(/^\/lib\/book\/([^/]+)$/, async m => {
+  const book = m[1];
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("文库", "#/lib")}${sealHTML(book)}</div>
+    <div id="bk-body"><div class="loading">展 卷 中 …</div></div>`;
+  const { rows } = await catalog();
+  const all = rows.filter(r => r[4] === book);
+  if (!all.length) { document.getElementById("bk-body").innerHTML = `<div class="empty">此集空无一卷</div>`; return; }
+
+  const isYuanqu = book === "元曲";
+  const subOf = r => isYuanqu ? (r[1].includes("・") ? r[1].split("・")[0] : "") : r[2];
+  const subCount = new Map();
+  for (const r of all) {
+    const s = subOf(r);
+    if (s) subCount.set(s, (subCount.get(s) || 0) + 1);
+  }
+  const subs = [...subCount.entries()].sort((a, b) => b[1] - a[1]);
+  const genres = [...all.reduce((mp, r) => mp.set(r[5], (mp.get(r[5]) || 0) + 1), new Map())]
+    .sort((a, b) => b[1] - a[1]);
+
+  let curSub = "", curGenre = "";
+  const body = document.getElementById("bk-body");
+  body.innerHTML = `
+    <div class="masthead"><div><h1 style="font-size:1.7rem;letter-spacing:.2em">${esc(book)}</h1>
+      <div class="sub">${all.length.toLocaleString()} 首 · ${subs.length} ${isYuanqu ? "剧目/散套" : "作者"}</div></div></div>
+    <hr class="rule-double">
+    ${genres.length > 1 ? `<div class="filter-row" id="g-row">
+      <button class="chip on" data-g="">全部体裁</button>
+      ${genres.map(([g, n]) => `<button class="chip" data-g="${esc(g)}">${esc(g)} ${n}</button>`).join("")}
+    </div>` : ""}
+    ${subs.length > 1 ? `
+      ${searchboxHTML("sub-q", isYuanqu ? "寻剧目 / 散套…" : "寻作者…")}
+      <div class="filter-row" id="s-row"></div>` : ""}
+    <div id="bk-list"></div>`;
+
+  const listEl = document.getElementById("bk-list");
+  const drawSubs = q => {
+    const el = document.getElementById("s-row");
+    if (!el) return;
+    const fq = fold(q || "");
+    const shown = subs.filter(([s]) => !fq || fold(s).includes(fq)).slice(0, 60);
+    el.innerHTML = `<button class="chip ${curSub ? "" : "on"}" data-s="">全部</button>` +
+      shown.map(([s, n]) => `<button class="chip ${s === curSub ? "on" : ""}" data-s="${esc(s)}">${esc(s)} ${n}</button>`).join("");
+    el.querySelectorAll("button").forEach(b => b.onclick = () => {
+      curSub = b.dataset.s; drawSubs(document.getElementById("sub-q")?.value.trim() || ""); drawList();
+    });
+  };
+  const drawList = () => {
+    const hits = all.filter(r => (!curSub || subOf(r) === curSub) && (!curGenre || r[5] === curGenre));
+    progressiveList(listEl, hits, r => poemRowHTML(r), 60);
+  };
+  document.querySelectorAll("#g-row button").forEach(b => b.onclick = () => {
+    curGenre = b.dataset.g;
+    document.querySelectorAll("#g-row button").forEach(x => x.classList.toggle("on", x === b));
+    drawList();
+  });
+  const subQ = document.getElementById("sub-q");
+  if (subQ) subQ.oninput = e => drawSubs(e.target.value.trim());
+  drawSubs("");
+  drawList();
+});
+
+/* ── 视图：高级检索（多条件组合 · 专业口径）───────────────── */
+route(/^\/search$/, async () => {
+  const [stats, shelves, profiles, themes] = await Promise.all([
+    getJSON("stats.json"), getJSON("shelves.json"),
+    getJSON("imagery_profiles.json"), getJSON("themes.json"),
+  ]);
+  await foldMap();
+  const eras = shelves.map(s => s.era);
+  const books = shelves.flatMap(s => s.books.map(b => b.book));
+  const genres = [...new Set(shelves.flatMap(s => s.books.flatMap(b => b.genres.map(g => g[0]))))];
+
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("文库", "#/lib")}${sealHTML("高级检索")}</div>
+    <div class="card">
+      <div class="sf-row"><label>关键词</label>
+        <input id="sf-q" type="search" placeholder="逐字检索（简繁通检）" autocomplete="off"></div>
+      <div class="sf-row"><label>检索域</label>
+        <div class="seg" id="sf-field" style="margin:0">
+          <button data-f="text" class="on">全文</button>
+          <button data-f="t">题目</button>
+          <button data-f="a">作者</button>
+        </div></div>
+      <div class="sf-row"><label>句　位</label>
+        <div class="seg" id="sf-pos" style="margin:0">
+          <button data-p="any" class="on">任意</button>
+          <button data-p="head">句首</button>
+          <button data-p="foot">句脚</button>
+        </div></div>
+      <div class="sf-row"><label>排除字</label>
+        <input id="sf-not" type="search" placeholder="含此字者不取（可空）" autocomplete="off"></div>
+    </div>
+
+    <details class="fold card" style="padding:4px 18px" open>
+      <summary>朝代 · 集部 · 体裁</summary>
+      <div class="fold-body" style="white-space:normal">
+        <div class="sf-label">朝代</div>
+        <div class="filter-row" id="sf-era">${eras.map(e => `<button class="chip" data-v="${esc(e)}">${esc(e)}</button>`).join("")}</div>
+        <div class="sf-label">集部</div>
+        <div class="filter-row" id="sf-book">${books.map(b => `<button class="chip" data-v="${esc(b)}">${esc(b)}</button>`).join("")}</div>
+        <div class="sf-label">体裁</div>
+        <div class="filter-row" id="sf-genre">${genres.map(g => `<button class="chip" data-v="${esc(g)}">${esc(g)}</button>`).join("")}</div>
+      </div>
+    </details>
+
+    <details class="fold card" style="padding:4px 18px">
+      <summary>意象 · 题材 · 篇幅</summary>
+      <div class="fold-body" style="white-space:normal">
+        <div class="sf-label">意象（篇中含）</div>
+        <div class="filter-row" id="sf-img">${profiles.slice(0, 30).map(p =>
+          `<button class="chip" data-v="${esc(p.imagery)}">${esc(p.imagery)}</button>`).join("")}</div>
+        <div class="sf-label">题材</div>
+        <div class="filter-row" id="sf-theme">${themes.map(t =>
+          `<button class="chip" data-v="${esc(t.theme)}">${esc(t.theme)}</button>`).join("")}</div>
+        <div class="sf-label">句数</div>
+        <div class="sf-inline">
+          <input id="sf-lmin" type="number" min="1" max="200" placeholder="最少"> —
+          <input id="sf-lmax" type="number" min="1" max="200" placeholder="最多"> 句
+        </div>
+        <div class="sf-label">每句字数</div>
+        <div class="filter-row" id="sf-cn">${[4, 5, 6, 7].map(n =>
+          `<button class="chip" data-v="${n}">${n} 言齐言</button>`).join("")}</div>
+      </div>
+    </details>
+
+    <button class="btn seal-btn block" id="sf-go">检　索</button>
+    <button class="btn block" id="sf-clear">清空条件</button>
+    <div id="sf-out" style="margin-top:12px"></div>`;
+
+  const multi = {};
+  ["era", "book", "genre", "img", "theme", "cn"].forEach(k => {
+    multi[k] = new Set();
+    document.querySelectorAll(`#sf-${k} button`).forEach(b => b.onclick = () => {
+      const v = b.dataset.v;
+      if (multi[k].has(v)) multi[k].delete(v); else multi[k].add(v);
+      b.classList.toggle("on");
+    });
+  });
+  let field = "text", posMode = "any";
+  document.querySelectorAll("#sf-field button").forEach(b => b.onclick = () => {
+    field = b.dataset.f;
+    document.querySelectorAll("#sf-field button").forEach(x => x.classList.toggle("on", x === b));
+  });
+  document.querySelectorAll("#sf-pos button").forEach(b => b.onclick = () => {
+    posMode = b.dataset.p;
+    document.querySelectorAll("#sf-pos button").forEach(x => x.classList.toggle("on", x === b));
+  });
+  document.getElementById("sf-clear").onclick = () => location.reload();
+
+  document.getElementById("sf-go").onclick = async () => {
+    const out = document.getElementById("sf-out");
+    out.innerHTML = `<div class="loading">逐 字 检 索 中 …</div>`;
+    const q = fold(cjkOnly(document.getElementById("sf-q").value));
+    const notQ = fold(cjkOnly(document.getElementById("sf-not").value));
+    const lmin = Number(document.getElementById("sf-lmin").value) || 0;
+    const lmax = Number(document.getElementById("sf-lmax").value) || 0;
+    const cns = new Set([...multi.cn].map(Number));
+    const needPoem = posMode !== "any" || lmin || lmax || cns.size ||
+      multi.img.size || multi.theme.size;
+
+    const { rows } = await catalog();
+    let cands = rows.filter(r =>
+      (!multi.era.size || multi.era.has(r[3])) &&
+      (!multi.book.size || multi.book.has(r[4])) &&
+      (!multi.genre.size || multi.genre.has(r[5])) &&
+      (!notQ || !r[7].includes(notQ)));
+    if (q) {
+      cands = cands.filter(r => field === "text" ? r[7].includes(q)
+        : field === "t" ? fold(r[1]).includes(q) : fold(r[2]).includes(q));
+    }
+    if (cands.length > 6000) cands = cands.slice(0, 6000);
+
+    let hits = cands;
+    if (needPoem) {
+      /* 需要篇内结构的条件：按需取分片（受候选量限制，成本可控） */
+      const byShard = new Map();
+      for (const r of cands) {
+        const s = shardOf(r[0]);
+        if (!byShard.has(s)) byShard.set(s, []);
+        byShard.get(s).push(r);
+      }
+      const keep = new Set();
+      for (const [s, group] of byShard) {
+        const shard = await getJSON("poems/shard_" + String(s).padStart(2, "0") + ".json");
+        const idx = new Map(shard.map(p => [p.id, p]));
+        for (const r of group) {
+          const p = idx.get(r[0]);
+          if (!p) continue;
+          const lines = p.l || [];
+          if (lmin && lines.length < lmin) continue;
+          if (lmax && lines.length > lmax) continue;
+          if (cns.size) {
+            const lens = new Set(lines.map(l => cjkOnly(l).length));
+            if (lens.size !== 1 || !cns.has([...lens][0])) continue;
+          }
+          if (multi.img.size && !(p.img || []).some(i => multi.img.has(i))) continue;
+          if (multi.theme.size && !(p.thm || []).some(t => multi.theme.has(t))) continue;
+          if (q && field === "text" && posMode !== "any") {
+            const ok = lines.some(l => {
+              const fl = fold(cjkOnly(l));
+              return posMode === "head" ? fl.startsWith(q) : fl.endsWith(q);
+            });
+            if (!ok) continue;
+          }
+          keep.add(r[0]);
+        }
+      }
+      hits = cands.filter(r => keep.has(r[0]));
+    }
+
+    const byEra = {}, byBook = {};
+    for (const r of hits) {
+      byEra[r[3]] = (byEra[r[3]] || 0) + 1;
+      byBook[r[4]] = (byBook[r[4]] || 0) + 1;
+    }
+    out.innerHTML = `
+      ${kicker(1, "检得", hits.length.toLocaleString() + " 首")}
+      ${hits.length ? `<div class="card">
+        <div class="sf-stat">${Object.entries(byEra).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
+          `<span class="chip">${esc(k)} ${v}</span>`).join("")}</div>
+        <div class="sf-stat">${Object.entries(byBook).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) =>
+          `<span class="chip seal-chip">${esc(k)} ${v}</span>`).join("")}</div>
+      </div>` : ""}
+      <div id="sf-list"></div>`;
+    progressiveList(document.getElementById("sf-list"), hits,
+      r => poemRowHTML(r, q && field === "text" ? snippetOf(r, q) : ""), 60);
+    if (q) pushHist(q);
+  };
+});
+
+/* ── 视图：文苑（古文观止 · 含辞赋名篇）───────────────────── */
+route(/^\/prose$/, async () => {
+  const prose = await getJSON("prose.json");
+  await foldMap();
+  const eras = [...new Set(prose.map(p => p.era))];
+  const genres = [...new Set(prose.map(p => p.g))];
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("风雅集", "#/salon")}${sealHTML("文苑")}</div>
+    <div class="masthead"><div><h1>文苑</h1><div class="sub">古文观止 · ${prose.length} 篇</div></div></div>
+    <hr class="rule-double">
+    ${searchboxHTML("pr-q", "寻一篇，如：赤壁赋 / 岳阳楼 / 苏轼")}
+    <div class="filter-row" id="pr-era">
+      <button class="chip on" data-v="">全部</button>
+      ${eras.map(e => `<button class="chip" data-v="${esc(e)}">${esc(e)}</button>`).join("")}
+    </div>
+    <div class="filter-row" id="pr-genre">
+      ${genres.map(g => `<button class="chip" data-v="${esc(g)}">${esc(g)}${g === "赋" ? " ✦" : ""}</button>`).join("")}
+    </div>
+    <div id="pr-list"></div>`;
+  let era = "", gset = new Set(), q = "";
+  const listEl = document.getElementById("pr-list");
+  const row = p => `<a class="poem-row" href="#/prose/${encodeURIComponent(p.id)}">
+      <span class="pr-t">${esc(p.t)}</span>
+      <span class="pr-a">${esc(p.a)}</span>
+      <span class="pr-d">${esc(p.g)}</span></a>`;
+  const draw = () => {
+    const fq = fold(q);
+    progressiveList(listEl, prose.filter(p =>
+      (!era || p.era === era) && (!gset.size || gset.has(p.g)) &&
+      (!fq || fold(p.t).includes(fq) || fold(p.a).includes(fq))), row, 60);
+  };
+  document.querySelectorAll("#pr-era button").forEach(b => b.onclick = () => {
+    era = b.dataset.v;
+    document.querySelectorAll("#pr-era button").forEach(x => x.classList.toggle("on", x === b));
+    draw();
+  });
+  document.querySelectorAll("#pr-genre button").forEach(b => b.onclick = () => {
+    const v = b.dataset.v;
+    if (gset.has(v)) gset.delete(v); else gset.add(v);
+    b.classList.toggle("on");
+    draw();
+  });
+  document.getElementById("pr-q").oninput = e => { q = e.target.value.trim(); draw(); };
+  draw();
+});
+
+route(/^\/prose\/([^/]+)$/, async m => {
+  const prose = await getJSON("prose.json");
+  const p = prose.find(x => x.id === m[1]);
+  if (!p) { $view.innerHTML = `<div class="empty">文苑未收此篇</div>`; return; }
+  $view.innerHTML = `
+    <div class="reader">
+      <div class="reader-top">${backBtn("文苑", "#/prose")}
+        <div class="r-tools"><button id="pr-vert">竖排</button></div></div>
+      <div class="poem-paper" id="paper">
+        <div class="p-title">${esc(p.t)}</div>
+        <div class="p-meta">${esc([p.d, p.a].filter(Boolean).join(" · "))}</div>
+        <div class="p-tags">
+          <span class="t">${esc(p.juan)}</span>
+          <span class="t">${esc(p.g)}</span>
+          ${p.src ? `<span class="t">${esc(p.src)}</span>` : ""}
+        </div>
+        <div class="p-scroll"><div class="p-lines prose-body" id="p-lines">${p.p.map(x => `<p>${esc(x)}</p>`).join("")}</div></div>
+        <div class="p-seal">${sealHTML(p.a ? [...cjkOnly(p.a)].slice(0, 3).join("") : "文苑")}</div>
+      </div>
+      <div class="card about"><p class="credit">《古文观止》${esc(p.juan)} · 原文直录（A 层）。散文不入格律计量层。</p></div>
+    </div>`;
+  document.getElementById("pr-vert").onclick = e => {
+    document.getElementById("paper").classList.toggle("vertical");
+    e.target.classList.toggle("on");
+    const sc = document.querySelector(".p-scroll");
+    if (document.getElementById("paper").classList.contains("vertical")) sc.scrollLeft = sc.scrollWidth;
+  };
+});
+
+/* ── 视图：对课（声律启蒙 · 按平水三十平韵）──────────────── */
+route(/^\/duike$/, async () => {
+  const dk = await getJSON("duike.json");
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("风雅集", "#/salon")}${sealHTML("对课")}</div>
+    <div class="masthead"><div><h1>对课</h1><div class="sub">${esc(dk.title)} · ${esc(dk.author)}</div></div></div>
+    <hr class="rule-double">
+    <div class="card about"><p>${esc((dk.abstract || "").slice(0, 160))}…</p>
+      <p class="credit">按平水三十平韵分编，与「韵表」「创作实验室」同一韵部口径。</p></div>
+    ${dk.chapters.map((c, i) => `
+      <details class="fold card" style="padding:4px 18px">
+        <summary>${esc(c.chapter)}<span style="margin-left:auto;font-size:.72rem;color:var(--ink-3)">${esc(c.vol)}</span></summary>
+        <div class="fold-body" style="white-space:normal">
+          ${c.paras.map(p => `<p style="margin-bottom:10px;line-height:2.05">${esc(p)}</p>`).join("")}
+          <a class="btn" href="#/compose/yun" style="margin-top:6px">查此韵字表 →</a>
+        </div>
+      </details>`).join("")}`;
 });
 
 /* ── 视图：诗人档案 ────────────────────────────────────────── */
@@ -515,16 +871,59 @@ route(/^\/salon$/, async () => {
       ${sealHTML("风雅集")}
     </div>
     <hr class="rule-double">
+    ${kicker(1, "创作")}
     <div class="entry-grid">
       <a class="entry" href="#/compose"><b>创作实验室</b><span>诗谱 · 龙谱 · 韵表 · 校验</span><span class="e-glyph">作</span></a>
-      <a class="entry" href="#/starmap"><b>意象星图</b><span>五十意象 · 同篇共现网络</span><span class="e-glyph">星</span></a>
-      <a class="entry" href="#/fav"><b>收藏夹</b><span>${getFavs().length} 首 · 私藏诗笺</span><span class="e-glyph">藏</span></a>
+      <a class="entry" href="#/duike"><b>对课</b><span>声律启蒙 · 三十平韵属对</span><span class="e-glyph">对</span></a>
       <a class="entry" href="#/cipai"><b>词牌定格</b><span>${stats.cipai} 牌 · 语料归纳句式</span><span class="e-glyph">词</span></a>
-      <a class="entry" href="#/theme"><b>题材九品</b><span>${stats.themes} 品 · 咏史至闺怨</span><span class="e-glyph">品</span></a>
       <a class="entry" href="#/rhyme"><b>韵部聚类</b><span>53 组 · 查一字知其韵伴</span><span class="e-glyph">韵</span></a>
+    </div>
+    ${kicker(2, "探究")}
+    <div class="entry-grid">
+      <a class="entry" href="#/starmap"><b>意象星图</b><span>五十意象 · 同篇共现网络</span><span class="e-glyph">星</span></a>
+      <a class="entry" href="#/matrix"><b>情象矩阵</b><span>情感 × 意象 · 计量热力</span><span class="e-glyph">矩</span></a>
+      <a class="entry" href="#/theme"><b>题材九品</b><span>${stats.themes} 品 · 咏史至闺怨</span><span class="e-glyph">品</span></a>
+      <a class="entry" href="#/prose"><b>文苑</b><span>古文观止 · 辞赋名篇</span><span class="e-glyph">文</span></a>
+    </div>
+    ${kicker(3, "游艺 · 私藏")}
+    <div class="entry-grid">
       <a class="entry" href="#/feihua"><b>飞花令</b><span>以字为令 · 语料实证应对</span><span class="e-glyph">飞</span></a>
+      <a class="entry" href="#/fav"><b>收藏夹</b><span>${getFavs().length} 首 · 私藏诗笺</span><span class="e-glyph">藏</span></a>
+      <a class="entry" href="#/search"><b>高级检索</b><span>多条件组合 · 专业口径</span><span class="e-glyph">检</span></a>
       <a class="entry" href="#/about"><b>关于墨一</b><span>证据分级 · 语料出处</span><span class="e-glyph">印</span></a>
     </div>`;
+});
+
+/* ── 视图：情感 × 意象矩阵（计量热力）─────────────────────── */
+route(/^\/matrix$/, async () => {
+  const net = await getJSON("network.json");
+  const mx = net.emotion_imagery_matrix || {};
+  const emotions = Object.keys(mx);
+  const imgSet = new Map();
+  for (const row of Object.values(mx)) {
+    for (const [im, n] of Object.entries(row)) imgSet.set(im, (imgSet.get(im) || 0) + n);
+  }
+  const imgs = [...imgSet.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(x => x[0]);
+  const max = Math.max(...emotions.flatMap(e => imgs.map(i => mx[e][i] || 0)), 1);
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("风雅集", "#/salon")}${sealHTML("情象矩阵")}</div>
+    <div class="masthead"><div><h1>情象</h1><div class="sub">情感 × 意象 · 同篇计量</div></div></div>
+    <hr class="rule-double">
+    <div class="card" style="overflow-x:auto">
+      <table class="mx-table">
+        <thead><tr><th></th>${imgs.map(i =>
+          `<th><a href="#/imagery/${encodeURIComponent(i)}">${esc(i)}</a></th>`).join("")}</tr></thead>
+        <tbody>${emotions.map(e => `<tr>
+          <th class="mx-emo">${esc(e)}</th>
+          ${imgs.map(i => {
+            const v = mx[e][i] || 0;
+            const a = v / max;
+            return `<td><span class="mx-cell" style="--a:${a.toFixed(3)}" title="${esc(e)} × ${esc(i)}：${v}">${v || ""}</span></td>`;
+          }).join("")}</tr>`).join("")}</tbody>
+      </table>
+    </div>
+    <div class="card about"><p class="credit">格值为该情感与该意象在同一作品中共现的篇数（B 层确定性计量，可回源复算）；
+    色深与数值成正比。点表头意象可展开其档案。</p></div>`;
 });
 
 /* ── 创作实验室：诗谱 / 词谱（龙谱）/ 韵表 / 校验 ──────────── */
@@ -682,15 +1081,172 @@ route(/^\/compose(?:\/(shipu|cipu|yun|check))?$/, async m => {
     };
   }
 
-  /* —— 校验（创作实验室核心）—— */
+  /* —— 校验（创作实验室核心）：近体自动判 / 依词谱点选校验 —— */
   if (tab === "check") {
     body.innerHTML = `
+      <div class="seg" id="ck-mode" style="margin-bottom:12px">
+        <button data-m="jinti" class="on">近体诗</button>
+        <button data-m="ci">依词谱填词</button>
+      </div>
+      <div id="ck-pane"></div>`;
+    const pane = document.getElementById("ck-pane");
+    document.querySelectorAll("#ck-mode button").forEach(b => b.onclick = () => {
+      document.querySelectorAll("#ck-mode button").forEach(x => x.classList.toggle("on", x === b));
+      b.dataset.m === "ci" ? drawCiPane() : drawJintiPane();
+    });
+
+    /* —— 依词谱填词：点选词牌 → 逐位对谱校验 —— */
+    async function drawCiPane() {
+      pane.innerHTML = `
+        <div class="card about" style="padding:10px 18px"><p class="credit" style="margin:0">
+          先点选词牌（龙榆生《唐宋词格律》），再填入词句 —— 逐字对谱位校验平仄与韵位。</p></div>
+        ${searchboxHTML("ci-pu-q", "点选词牌，如：浣溪沙 / 卜算子")}
+        <div class="filter-row" id="ci-pu-row"></div>
+        <div id="ci-form"></div>`;
+      const cipu = await getJSON("cipu.json");
+      await foldMap();
+      let picked = null, formIdx = 0;
+      const drawChips = q => {
+        const fq = fold(q || "");
+        const list = cipu.filter(c => !fq || fold(c.cipai).includes(fq) ||
+          (c.aliases || []).some(a => fold(a).includes(fq))).slice(0, 40);
+        document.getElementById("ci-pu-row").innerHTML = list.map(c =>
+          `<button class="chip ${picked && c.cipai === picked.cipai ? "on" : ""}" data-c="${esc(c.cipai)}">${esc(c.cipai)}</button>`).join("")
+          || `<span style="color:var(--ink-3);font-size:.84rem">龙谱未收此调</span>`;
+        document.querySelectorAll("#ci-pu-row button").forEach(b => b.onclick = () => {
+          picked = cipu.find(c => c.cipai === b.dataset.c);
+          formIdx = 0;
+          drawChips(document.getElementById("ci-pu-q").value.trim());
+          drawForm();
+        });
+      };
+      document.getElementById("ci-pu-q").oninput = e => drawChips(e.target.value.trim());
+      drawChips("");
+
+      /* 谱位序列。要点：△▲ 是韵标记，缀于韵脚字之后、本身不占字位
+         （浣溪沙 47 符号实为 42 字 + 5 韵标）；韵标同时收紧该位平仄：
+         △ 必押平、▲ 必押仄，即便该位本作 ⊙ 可平可仄。
+         ｛｝［］（）、！～ˇ 等为对偶/叠韵/可省/豆/领格/衬字标注，不占字位。 */
+      const parsePu = pattern => {
+        const out = [];
+        for (const ch of [...(pattern || "")]) {
+          if ("○●⊙".includes(ch)) { out.push({ k: "pz", s: ch, want: ch }); continue; }
+          if ("△▲".includes(ch)) {
+            for (let i = out.length - 1; i >= 0; i--) {
+              if (out[i].k === "pz") {
+                out[i].k = "rhyme";
+                out[i].mark = ch;
+                out[i].want = ch === "△" ? "○" : "●";
+                break;
+              }
+            }
+            continue;
+          }
+          if (ch === "\n") { out.push({ k: "br" }); continue; }
+          out.push({ k: "punc", s: ch });
+        }
+        return out;
+      };
+
+      function drawForm() {
+        if (!picked) return;
+        const forms = picked.forms || [];
+        const pu = parsePu((forms[formIdx] || {}).pattern);
+        const need = pu.filter(x => x.k === "pz" || x.k === "rhyme").length;
+        document.getElementById("ci-form").innerHTML = `
+          ${kicker(1, picked.cipai, need + " 字")}
+          ${forms.length > 1 ? `<div class="filter-row" id="ci-form-sel">${forms.map((f, i) =>
+            `<button class="chip ${i === formIdx ? "on" : ""}" data-i="${i}">${esc(f.label || "格" + (i + 1))}</button>`).join("")}</div>` : ""}
+          <div class="card"><div class="pu-pattern">${esc((forms[formIdx] || {}).pattern || "")
+            .replace(/[△▲]/g, ch => `<span class="rk">${ch}</span>`)}</div></div>
+          <textarea class="draft-box" id="ci-draft" placeholder="填入词句（依谱换行，标点可有可无）"></textarea>
+          <button class="btn seal-btn block" id="ci-go">依谱校验</button>
+          <div id="ci-out" style="margin-top:12px"></div>`;
+        document.querySelectorAll("#ci-form-sel button").forEach(b => b.onclick = () => {
+          formIdx = Number(b.dataset.i); drawForm();
+        });
+        document.getElementById("ci-go").onclick = async () => {
+          const out = document.getElementById("ci-out");
+          const text = document.getElementById("ci-draft").value;
+          const chars = [...cjkOnly(text)];
+          if (!chars.length) { out.innerHTML = `<div class="empty">请先落笔</div>`; return; }
+          out.innerHTML = `<div class="loading">对 谱 中 …</div>`;
+          const [gy, rb] = await Promise.all([getJSON("guangyun.json"), rhymebook()]);
+          const slots = pu.filter(x => x.k === "pz" || x.k === "rhyme");
+          const cells = [], rhymeChars = [];
+          let bad = 0, unknown = 0;
+          slots.forEach((slot, i) => {
+            const ch = chars[i];
+            if (!ch) { cells.push({ slot, ch: "", state: "miss" }); return; }
+            const rec = gy[ch] || gy[fold(ch)];
+            const t = rec ? rec[0] : null;
+            let state = "ok";
+            const want = slot.want;          // ⊙ 通配；韵位由韵标收紧
+            if (!t) { state = "unknown"; unknown += 1; }
+            else if (want === "○" && !(t === "平" || t === "两")) { state = "bad"; bad += 1; }
+            else if (want === "●" && !(t === "仄" || t === "两")) { state = "bad"; bad += 1; }
+            if (slot.k === "rhyme") rhymeChars.push(ch);
+            cells.push({ slot, ch, state, tone: t });
+          });
+          const extra = chars.length - slots.length;
+          /* 韵位归部一致性 */
+          const psOf = c => new Set(((gy[c] || gy[fold(c)] || [null, []])[1] || [])
+            .map(r => rb.gy2ps[r[0]]).filter(Boolean));
+          let common = null;
+          for (const c of rhymeChars) {
+            const s = psOf(c);
+            if (!s.size) continue;
+            common = common === null ? s : new Set([...common].filter(x => s.has(x)));
+          }
+          const cilinCommon = common && common.size
+            ? new Set([...common].flatMap(ps => rb.ps2cilin[ps] || [])) : null;
+          let cilinAll = null;
+          if (!(common && common.size)) {
+            for (const c of rhymeChars) {
+              const cs = new Set([...psOf(c)].flatMap(ps => rb.ps2cilin[ps] || []));
+              if (!cs.size) continue;
+              cilinAll = cilinAll === null ? cs : new Set([...cilinAll].filter(x => cs.has(x)));
+            }
+          }
+          /* 谱面渲染：按谱行分列 */
+          let ci = 0;
+          const rendered = pu.map(x => {
+            if (x.k === "br") return "<br>";
+            if (x.k === "punc") return `<span class="pu-punc">${esc(x.s)}</span>`;
+            const cell = cells[ci++];
+            const ch = cell.ch || "□";
+            const sym = x.k === "rhyme" ? x.mark : x.s;
+            return `<span class="pu-cell ${cell.state}${x.k === "rhyme" ? " rhyme" : ""}"
+              title="${esc(x.s)}${x.k === "rhyme" ? "（韵）" : ""}${cell.tone ? " · 实为" + esc(cell.tone) : ""}">${esc(ch)}<i>${esc(sym)}</i></span>`;
+          }).join("");
+          out.innerHTML = `
+            <div class="card"><div class="verdict">
+              <span class="v ${bad === 0 ? "ok" : bad <= 3 ? "" : "bad"}">合谱 ${slots.length - bad - unknown}/${slots.length} 字 · 出律 ${bad} 处</span>
+              ${chars.length < slots.length ? `<span class="v bad">尚缺 ${slots.length - chars.length} 字</span>` : ""}
+              ${extra > 0 ? `<span class="v bad">多出 ${extra} 字</span>` : ""}
+              ${unknown ? `<span class="v">${unknown} 字广韵无考</span>` : ""}
+              ${rhymeChars.length ? (common && common.size
+                ? `<span class="v ok">韵位同押平水「${esc([...common].join("/"))}」${cilinCommon && cilinCommon.size ? " · 词林" + esc([...cilinCommon].join("/")) : ""}</span>`
+                : cilinAll && cilinAll.size
+                  ? `<span class="v">平水异韵 · 词林正韵同部（${esc([...cilinAll].join("/"))}）</span>`
+                  : `<span class="v bad">韵位归部不一</span>`) : ""}
+            </div></div>
+            <div class="card"><div class="pu-check">${rendered}</div>
+              <div class="legend" style="margin-top:10px">格内小字为谱位：○平 ●仄 ⊙可平可仄 △平韵 ▲仄韵
+              （韵标缀于韵脚字，不另占字位，并收紧该位平仄）；朱砂＝出律，青＝韵位，灰＝广韵无考。
+              依《广韵》判定，两读按通配；｛｝对偶、［］叠韵、（）可省、、豆、！～领格、ˇ衬字等标注不占字位。</div></div>`;
+        };
+      }
+    }
+
+    function drawJintiPane() {
+      pane.innerHTML = `
       <div class="card about" style="padding:10px 18px"><p class="credit" style="margin:0">
         每行一句（标点可有可无）。四句/八句且五七言者比对近体四起式；另检三平尾、韵脚归部与「与古人撞句」。</p></div>
       <textarea class="draft-box" id="draft" placeholder="月落乌啼霜满天&#10;江枫渔火对愁眠&#10;姑苏城外寒山寺&#10;夜半钟声到客船"></textarea>
       <button class="btn seal-btn block" id="check-go">校 验</button>
       <div id="check-out" style="margin-top:12px"></div>`;
-    document.getElementById("check-go").onclick = async () => {
+      document.getElementById("check-go").onclick = async () => {
       const out = document.getElementById("check-out");
       const rawLines = document.getElementById("draft").value.split("\n")
         .map(s => s.trim()).filter(Boolean);
@@ -807,7 +1363,9 @@ route(/^\/compose(?:\/(shipu|cipu|yun|check))?$/, async m => {
         }).join("")}</div>` : ""}
         <div class="card about"><p class="credit">依《广韵》逐字判定（两读/无考按通配），严格位为二四六与句脚；
         拗救与变格未判，违律仅作初筛提示。韵部按平水韵（广韵合并推导），词林正韵为填词口径。</p></div>`;
-    };
+      };
+    }
+    drawJintiPane();
   }
 });
 

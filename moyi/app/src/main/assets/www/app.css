@@ -410,6 +410,91 @@ button {
 .verdict .v.ok { color: var(--dai); border-color: color-mix(in srgb, var(--dai) 50%, transparent); }
 .verdict .v.bad { color: var(--seal); border-color: color-mix(in srgb, var(--seal) 50%, transparent); }
 
+/* 依谱填词校验：格子 */
+.pu-check { line-height: 2.9; letter-spacing: .04em; }
+.pu-cell {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 1.75em; height: 1.75em; margin: 0 2px;
+  border: 1px solid var(--hairline-2); border-radius: 6px;
+  font-size: 1.05rem; vertical-align: middle;
+}
+.pu-cell i {
+  position: absolute; top: -.72em; right: -.15em; font-style: normal;
+  font-size: .55em; color: var(--ink-3);
+}
+.pu-cell.bad { color: var(--seal); border-color: var(--seal); font-weight: 700; }
+.pu-cell.bad i { color: var(--seal); }
+.pu-cell.unknown { color: var(--ink-3); border-style: dashed; }
+.pu-cell.miss { color: var(--ink-3); border-style: dashed; opacity: .6; }
+.pu-cell.rhyme { border-color: var(--dai); }
+.pu-cell.rhyme.ok { color: var(--dai); }
+.pu-cell.rhyme i { color: var(--dai); }
+.pu-punc { color: var(--ink-3); margin: 0 1px; }
+
+/* 情感 × 意象矩阵 */
+.mx-table { border-collapse: collapse; font-size: .78rem; }
+.mx-table th { font-weight: 400; color: var(--ink-2); padding: 4px 3px; white-space: nowrap; }
+.mx-table thead th { font-size: .9rem; color: var(--ink); }
+.mx-table thead th a { border-bottom: 1px solid var(--hairline-2); }
+.mx-table .mx-emo { text-align: right; padding-right: 8px; letter-spacing: .08em; }
+.mx-table td { padding: 2px; }
+.mx-cell {
+  display: flex; align-items: center; justify-content: center;
+  width: 2.5em; height: 2.1em; border-radius: 5px;
+  background: color-mix(in srgb, var(--dai) calc(var(--a) * 78%), transparent);
+  color: color-mix(in srgb, var(--ink) calc(35% + var(--a) * 65%), transparent);
+  font-size: .72rem;
+}
+
+/* 高级检索表单 */
+.sf-row { display: flex; align-items: center; gap: 12px; padding: 7px 0; }
+.sf-row label { flex: none; width: 4.2em; font-size: .82rem; color: var(--ink-2); letter-spacing: .12em; }
+.sf-row input {
+  flex: 1; min-width: 0; background: var(--paper-sink); border: 1px solid var(--hairline);
+  border-radius: 9px; padding: 7px 12px; font: inherit; font-size: .92rem;
+  color: var(--ink); outline: none;
+}
+.sf-row .seg { flex: 1; }
+.sf-label { font-size: .76rem; color: var(--ink-3); letter-spacing: .25em; margin: 10px 0 6px; }
+.sf-inline { display: flex; align-items: center; gap: 8px; font-size: .84rem; color: var(--ink-2); }
+.sf-inline input {
+  width: 5em; background: var(--paper-sink); border: 1px solid var(--hairline);
+  border-radius: 8px; padding: 5px 10px; font: inherit; font-size: .88rem; color: var(--ink); outline: none;
+}
+.sf-stat { margin: 2px 0; }
+.filter-row {
+  display: flex; flex-wrap: nowrap; gap: 0; overflow-x: auto; padding-bottom: 4px;
+  margin-bottom: 8px; -webkit-overflow-scrolling: touch;
+}
+.filter-row::-webkit-scrollbar { height: 0; }
+.filter-row .chip { flex: none; }
+
+/* 分层书架 */
+.era-block { margin-bottom: 18px; }
+.era-head {
+  display: flex; align-items: baseline; gap: 10px; padding: 0 2px 6px;
+  border-bottom: 1px solid var(--hairline-2); margin-bottom: 4px;
+}
+.era-head b { font-size: 1.02rem; letter-spacing: .3em; }
+.era-head span { margin-left: auto; font-size: .74rem; color: var(--ink-3); }
+.shelf-row {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 11px 2px; border-bottom: 1px solid var(--hairline);
+}
+.shelf-row:active { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.shelf-row .sb-name { font-size: .98rem; letter-spacing: .1em; flex: none; }
+.shelf-row .sb-meta {
+  font-size: .7rem; color: var(--ink-3); flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.shelf-row .sb-n { font-size: .76rem; color: var(--ink-2); flex: none; }
+
+/* 文苑散文体 */
+.p-lines.prose-body { text-align: justify; font-size: 1rem; line-height: 2.05; letter-spacing: .02em; }
+.p-lines.prose-body p { margin-bottom: 12px; text-indent: 2em; }
+.poem-paper.vertical .p-lines.prose-body { text-align: start; }
+.poem-paper.vertical .p-lines.prose-body p { text-indent: 2em; margin: 0 0 0 12px; }
+
 .yun-chars { line-height: 2.1; letter-spacing: .3em; font-size: 1rem; color: var(--ink-2); }
 .yun-head { display: flex; align-items: baseline; gap: 10px; }
 .yun-head b { font-size: 1.05rem; letter-spacing: .1em; }
