@@ -156,7 +156,9 @@ async function render() {
       (t === "home" && path === "/") ||
       (t === "imagery" && tab === "imagery") ||
       (t === "salon" && ["salon", "cipai", "theme", "feihua", "about", "starmap", "fav",
-        "rhyme", "compose", "prose", "duike", "matrix", "fu", "famous", "allusion", "compare"].includes(tab)) ||
+        "rhyme", "compose", "prose", "duike", "matrix", "fu", "famous", "allusion",
+        "compare", "rhymeflow"].includes(tab)) ||
+      (t === "poets" && ["poet", "poets", "fingerprint"].includes(tab)) ||
       (t === "lib" && ["lib", "search", "cross"].includes(tab)) ||
       (t === "poets" && tab === "poet"));
   });
@@ -278,33 +280,80 @@ route(/^\/$/, async () => {
     </div>`;
 });
 
-/* ── 视图：意象档案（列表） ────────────────────────────────── */
+/* ── 视图：意象（档案 50 + 广谱 203，全库标注） ─────────────── */
 route(/^\/imagery$/, async () => {
-  const profiles = await getJSON("imagery_profiles.json");
+  const [profiles, wide] = await Promise.all([
+    getJSON("imagery_profiles.json"), getJSON("imagery_wide.json"),
+  ]);
+  await foldMap();
+  const archived = new Set(profiles.map(p => p.imagery));
+  const cats = [...new Set(wide.items.map(i => i.cat))];
   $view.innerHTML = `
     <div class="masthead">
-      <div><h1>意象</h1><div class="sub">五十意象 · 皆可回源</div></div>
-      ${sealHTML("意象档案")}
+      <div><h1>意象</h1><div class="sub">${wide.items.length} 意象 · 覆盖 ${(wide.n_covered / wide.n_total * 100).toFixed(1)}% 作品</div></div>
+      ${sealHTML("意象")}
     </div>
     <hr class="rule-double">
-    ${searchboxHTML("img-q", "寻一意象，如：月 / 孤舟 / 杜鹃")}
-    <div class="img-grid" id="img-grid"></div>`;
+    ${searchboxHTML("img-q", "寻一意象，如：月 / 芭蕉 / 铁衣")}
+    <div class="seg" id="img-seg">
+      <button data-t="arch" class="on">档案 ${profiles.length}</button>
+      <button data-t="all">全部 ${wide.items.length}</button>
+    </div>
+    <div id="img-cat" class="filter-row" style="display:none"></div>
+    <div class="img-grid" id="img-grid"></div>
+    <div class="card about" id="img-note"></div>`;
 
   const grid = document.getElementById("img-grid");
-  const draw = q => {
-    const list = profiles.filter(p => !q || p.imagery.includes(q) ||
-      (p.surface_forms || []).some(s => s.includes(q)));
-    grid.innerHTML = list.map(p => {
-      const emo = (p.emotion_associations || [])[0];
-      return `<a class="img-cell" href="#/imagery/${encodeURIComponent(p.imagery)}">
-          ${emo ? `<span class="e">${esc(emo.emotion.slice(0, 2))}</span>` : ""}
-          <span class="g">${esc(p.imagery)}</span>
-          <span class="n">${p.n_poems} 首</span>
-        </a>`;
-    }).join("") || `<div class="empty" style="grid-column:1/-1">未收此意象</div>`;
+  const note = document.getElementById("img-note");
+  const catRow = document.getElementById("img-cat");
+  let tab = "arch", cat = "", q = "";
+
+  const cellArch = p => {
+    const emo = (p.emotion_associations || [])[0];
+    return `<a class="img-cell" href="#/imagery/${encodeURIComponent(p.imagery)}">
+        ${emo ? `<span class="e">${esc(emo.emotion.slice(0, 2))}</span>` : ""}
+        <span class="g">${esc(p.imagery)}</span>
+        <span class="n">${p.n_poems} 首</span></a>`;
   };
-  draw("");
-  document.getElementById("img-q").oninput = e => draw(e.target.value.trim());
+  const cellWide = it => `<a class="img-cell${it.archive ? "" : " wide-cell"}"
+      href="${it.archive ? "#/imagery/" + encodeURIComponent(it.name)
+        : "#/cross?img=" + encodeURIComponent(it.name) + "&wide=1"}">
+      ${it.archive ? `<span class="e">档</span>` : ""}
+      <span class="g" style="font-size:${[...it.name].length > 2 ? "1.5rem" : "2.5rem"}">${esc(it.name)}</span>
+      <span class="n">${it.n.toLocaleString()} 首</span></a>`;
+
+  const draw = () => {
+    const fq = fold(q);
+    if (tab === "arch") {
+      catRow.style.display = "none";
+      const list = profiles.filter(p => !fq || fold(p.imagery).includes(fq) ||
+        (p.surface_forms || []).some(s => fold(s).includes(fq)));
+      grid.innerHTML = list.map(cellArch).join("") ||
+        `<div class="empty" style="grid-column:1/-1">档案中未收此意象，试「全部」</div>`;
+      note.innerHTML = `<p class="credit">档案意象经规则挖掘与逐字回源审核，附情感光谱、
+        共现网络与全量例证；点入即见完整档案。</p>`;
+    } else {
+      catRow.style.display = "flex";
+      catRow.innerHTML = `<button class="chip ${cat ? "" : "on"}" data-c="">全部门类</button>` +
+        cats.map(c => `<button class="chip ${c === cat ? "on" : ""}" data-c="${esc(c)}">${esc(c)}</button>`).join("");
+      catRow.querySelectorAll("button").forEach(b => b.onclick = () => { cat = b.dataset.c; draw(); });
+      const list = wide.items.filter(it =>
+        (!cat || it.cat === cat) &&
+        (!fq || fold(it.name).includes(fq) || (it.surfaces || []).some(s => fold(s).includes(fq))));
+      grid.innerHTML = list.map(cellWide).join("") ||
+        `<div class="empty" style="grid-column:1/-1">未收此意象</div>`;
+      note.innerHTML = `<p class="credit">${esc(wide.note)}
+        全库 ${wide.n_total.toLocaleString()} 首中 ${wide.n_covered.toLocaleString()} 首得标注
+        （${(wide.n_covered / wide.n_total * 100).toFixed(1)}%）；标「档」者另有完整档案。</p>`;
+    }
+  };
+  document.querySelectorAll("#img-seg button").forEach(b => b.onclick = () => {
+    tab = b.dataset.t;
+    document.querySelectorAll("#img-seg button").forEach(x => x.classList.toggle("on", x === b));
+    draw();
+  });
+  document.getElementById("img-q").oninput = e => { q = e.target.value.trim(); draw(); };
+  draw();
 });
 
 /* ── 视图：意象详情（档案 / 例证长卷） ─────────────────────── */
@@ -854,6 +903,190 @@ route(/^\/prose\/([^/]+)$/, async m => {
   };
 });
 
+/* ── 视图：诗人风格指纹（多维计量 · 可两位对读）───────────── */
+const FP_KEY = "moyi_fp_pick";
+const getFpPick = () => { try { return JSON.parse(localStorage.getItem(FP_KEY) || "[]"); } catch { return []; } };
+function toggleFpPick(name) {
+  let arr = getFpPick().filter(x => x !== name);
+  if (arr.length === getFpPick().length) arr.unshift(name);
+  arr = arr.slice(0, 2);
+  try { localStorage.setItem(FP_KEY, JSON.stringify(arr)); } catch { /* 忽略 */ }
+  return arr;
+}
+
+route(/^\/fingerprint$/, async () => {
+  const fps = await getJSON("fingerprints.json");
+  await foldMap();
+  const picked = getFpPick();
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("诗人档案", "#/poets")}${sealHTML("风格指纹")}</div>
+    <div class="masthead"><div><h1>指纹</h1><div class="sub">${fps.length} 位 · 存诗二十首以上</div></div></div>
+    <hr class="rule-double">
+    <div class="card about"><p class="credit">风格指纹为多维计量：惯用意象（全库标注）、体裁偏好、
+    用韵倾向（韵脚归平水韵部）、平均篇幅。皆为 B 层确定性统计，不作高下评断。</p></div>
+    ${picked.length ? `<div class="filter-row" id="fp-picked"></div>` : ""}
+    ${searchboxHTML("fp-q", "寻一诗人，如：李白 / 苏轼 / 纳兰")}
+    <div id="fp-list"></div>`;
+  const drawPicked = () => {
+    const el = document.getElementById("fp-picked");
+    if (!el) return;
+    const cur = getFpPick();
+    el.innerHTML = cur.map(n => `<button class="chip on" data-n="${esc(n)}">${esc(n)} ✕</button>`).join("") +
+      (cur.length === 2 ? `<a class="chip seal-chip" href="#/fingerprint/${encodeURIComponent(cur[0])}/${encodeURIComponent(cur[1])}">对读二家 →</a>` : "");
+    el.querySelectorAll("[data-n]").forEach(b => b.onclick = () => { toggleFpPick(b.dataset.n); render(); });
+  };
+  const listEl = document.getElementById("fp-list");
+  const row = f => {
+    const on = getFpPick().includes(f.author);
+    return `<div class="person-row">
+      <a class="avatar" href="#/fingerprint/${encodeURIComponent(f.author)}">${esc([...f.author][0])}</a>
+      <a class="who" href="#/fingerprint/${encodeURIComponent(f.author)}"><b>${esc(f.author)}</b>
+        <span>${esc(f.dynasty)} · 常咏 ${(f.img || []).slice(0, 4).map(x => x[0]).join(" ")}</span></a>
+      <button class="chip ${on ? "on" : ""} fp-pick" data-n="${esc(f.author)}">${on ? "已择" : "择"}</button>
+      <span class="cnt">${f.n}</span></div>`;
+  };
+  const draw = q => {
+    const fq = fold(q);
+    progressiveList(listEl, fps.filter(f => !fq || fold(f.author).includes(fq)), row, 50);
+    listEl.querySelectorAll(".fp-pick").forEach(b => b.onclick = () => {
+      toggleFpPick(b.dataset.n); render();
+    });
+  };
+  drawPicked();
+  draw("");
+  document.getElementById("fp-q").oninput = e => draw(e.target.value.trim());
+});
+
+const fpBars = (items, max, hrefFn) => items.map(([k, v]) => `
+  <div class="fp-bar"><span class="fp-k">${hrefFn ? `<a href="${hrefFn(k)}">${esc(k)}</a>` : esc(k)}</span>
+    <i style="width:${Math.round(v / max * 100)}%"></i><b>${v}</b></div>`).join("");
+
+route(/^\/fingerprint\/([^/]+)$/, async m => {
+  const fps = await getJSON("fingerprints.json");
+  const f = fps.find(x => x.author === m[1]);
+  if (!f) { $view.innerHTML = `<div class="empty">此家存诗未足二十首，暂未立指纹</div>`; return; }
+  const maxI = Math.max(...f.img.map(x => x[1]), 1);
+  const maxG = Math.max(...f.genre.map(x => x[1]), 1);
+  const maxY = Math.max(...f.yun.map(x => x[1]), 1);
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("风格指纹", "#/fingerprint")}${sealHTML(f.author)}</div>
+    <div class="img-hero"><span class="big" style="font-size:2.6rem">${esc(f.author)}</span>
+      <div class="facts"><div class="nums">${esc(f.dynasty)} · 计 ${f.n} 首 · 平均 ${f.avg_lines} 句</div>
+        <div class="forms">${(f.books || []).map(b => `<span class="form-tag">${esc(b)}</span>`).join("")}</div></div></div>
+    <div class="filter-row">
+      <a class="chip" href="#/poet/${encodeURIComponent(f.author)}">诗人档案 →</a>
+      <button class="chip fp-pick2">择入对读</button>
+    </div>
+    ${kicker(1, "惯用意象", "全库标注计量")}
+    <div class="card">${fpBars(f.img, maxI, k => "#/cross?img=" + encodeURIComponent(k))}</div>
+    ${kicker(2, "体裁偏好")}
+    <div class="card">${fpBars(f.genre, maxG)}</div>
+    ${kicker(3, "用韵倾向", "韵脚归平水韵部")}
+    <div class="card">${f.yun.length ? fpBars(f.yun, maxY) : `<div class="empty">此家作品未标韵脚</div>`}</div>
+    <div class="card about"><p class="credit">意象取全库表面标注，体裁与韵部取自计量层；
+    统计仅及本馆所收之作，非其全集实况。</p></div>`;
+  document.querySelector(".fp-pick2").onclick = () => {
+    const arr = toggleFpPick(f.author);
+    location.hash = arr.length === 2
+      ? `#/fingerprint/${encodeURIComponent(arr[0])}/${encodeURIComponent(arr[1])}`
+      : "#/fingerprint";
+  };
+});
+
+route(/^\/fingerprint\/([^/]+)\/([^/]+)$/, async m => {
+  const fps = await getJSON("fingerprints.json");
+  const a = fps.find(x => x.author === m[1]), b = fps.find(x => x.author === m[2]);
+  if (!a || !b) { $view.innerHTML = `<div class="empty">二家之中有未立指纹者</div>`; return; }
+  const mapOf = arr => new Map(arr);
+  const ia = mapOf(a.img), ib = mapOf(b.img);
+  const allImg = [...new Set([...ia.keys(), ...ib.keys()])];
+  const rate = (mp, n, k) => (mp.get(k) || 0) / n;      // 每首均次，消弭篇数差
+  const rows = allImg.map(k => ({
+    k, ra: rate(ia, a.n, k), rb: rate(ib, b.n, k),
+    d: rate(ia, a.n, k) - rate(ib, b.n, k),
+  })).sort((x, y) => Math.abs(y.d) - Math.abs(x.d));
+  const maxR = Math.max(...rows.map(r => Math.max(r.ra, r.rb)), 0.001);
+  const shared = rows.filter(r => r.ra > 0 && r.rb > 0).sort((x, y) => (y.ra + y.rb) - (x.ra + x.rb));
+  const ga = mapOf(a.genre), gb = mapOf(b.genre);
+  const ya = mapOf(a.yun), yb = mapOf(b.yun);
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("风格指纹", "#/fingerprint")}${sealHTML("二家对读")}</div>
+    <div class="card cmp-wrap" style="padding:16px 10px">
+      <div class="cmp-col"><div class="cmp-title">${esc(a.author)}</div>
+        <div class="cmp-meta">${esc(a.dynasty)} · ${a.n} 首<br>均 ${a.avg_lines} 句</div></div>
+      <div class="cmp-rule"></div>
+      <div class="cmp-col"><div class="cmp-title">${esc(b.author)}</div>
+        <div class="cmp-meta">${esc(b.dynasty)} · ${b.n} 首<br>均 ${b.avg_lines} 句</div></div>
+    </div>
+    ${kicker(1, "意象偏好之差", "每首均次")}
+    <div class="card">${rows.slice(0, 12).map(r => `
+      <div class="fp-duo">
+        <span class="fp-a" style="width:${Math.round(r.ra / maxR * 46)}%"></span>
+        <span class="fp-k2"><a href="#/cross?img=${encodeURIComponent(r.k)}">${esc(r.k)}</a></span>
+        <span class="fp-b" style="width:${Math.round(r.rb / maxR * 46)}%"></span>
+      </div>`).join("")}
+      <div class="legend" style="margin-top:10px">左（墨）为 ${esc(a.author)}，右（胭）为 ${esc(b.author)}；
+      条长为每首均次，按二家差异由大到小排列。</div>
+    </div>
+    ${kicker(2, "共好意象", shared.length + " 个")}
+    <div class="card">${shared.slice(0, 16).map(r =>
+      `<a class="chip" href="#/cross?img=${encodeURIComponent(r.k)}">${esc(r.k)}</a>`).join("") || "—"}</div>
+    ${kicker(3, "体裁与用韵")}
+    <div class="card">
+      <div class="cmp-row"><b>${esc(a.author)}</b><span>${a.genre.slice(0, 4).map(x => x[0] + " " + x[1]).join(" · ")}
+        ${ya.size ? "｜韵 " + a.yun.slice(0, 4).map(x => x[0]).join(" ") : ""}</span></div>
+      <div class="cmp-row"><b>${esc(b.author)}</b><span>${b.genre.slice(0, 4).map(x => x[0] + " " + x[1]).join(" · ")}
+        ${yb.size ? "｜韵 " + b.yun.slice(0, 4).map(x => x[0]).join(" ") : ""}</span></div>
+      <div class="cmp-row"><b>同用体裁</b><span>${[...ga.keys()].filter(k => gb.has(k)).join(" · ") || "—"}</span></div>
+      <div class="cmp-row"><b>同用韵部</b><span>${[...ya.keys()].filter(k => yb.has(k)).join(" · ") || "—"}</span></div>
+    </div>
+    <div class="card about"><p class="credit">差异以每首均次计，已消弭二家存诗多寡之影响；此为形式计量，
+    不代作风格优劣与师承判断。</p></div>`;
+});
+
+/* ── 视图：韵部时代流变 ────────────────────────────────────── */
+route(/^\/rhymeflow$/, async () => {
+  const data = await getJSON("rhyme_flow.json");
+  const flow = data.flow || {};
+  const eras = (data.eras || []).filter(e => Object.keys(flow[e] || {}).length);
+  const totals = {};
+  for (const e of eras) totals[e] = Object.values(flow[e]).reduce((s, v) => s + v, 0);
+  /* 取各代占比前列的韵部并集 */
+  const top = new Set();
+  for (const e of eras) {
+    Object.entries(flow[e]).sort((a, b) => b[1] - a[1]).slice(0, 8)
+      .forEach(([y]) => top.add(y));
+  }
+  const yuns = [...top];
+  const share = (e, y) => (flow[e][y] || 0) / Math.max(1, totals[e]);
+  yuns.sort((x, y) => share(eras[0], y) - share(eras[0], x));
+  const maxShare = Math.max(...yuns.flatMap(y => eras.map(e => share(e, y))), 0.001);
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("风雅集", "#/salon")}${sealHTML("韵部流变")}</div>
+    <div class="masthead"><div><h1>韵变</h1><div class="sub">历代用韵之消长</div></div></div>
+    <hr class="rule-double">
+    <div class="card" style="overflow-x:auto">
+      <table class="mx-table">
+        <thead><tr><th></th>${eras.map(e => `<th>${esc(e)}</th>`).join("")}</tr></thead>
+        <tbody>${yuns.map(y => `<tr>
+          <th class="mx-emo"><a href="#/compose/yun">${esc(y)}</a></th>
+          ${eras.map(e => {
+            const s = share(e, y);
+            return `<td><span class="mx-cell" style="--a:${(s / maxShare).toFixed(3)}"
+              title="${esc(e)}·${esc(y)}韵：${flow[e][y] || 0} 处，占 ${(s * 100).toFixed(1)}%">${
+              s > 0.005 ? (s * 100).toFixed(0) : ""}</span></td>`;
+          }).join("")}</tr>`).join("")}</tbody>
+      </table>
+    </div>
+    <div class="card">
+      <div class="sf-label">各代韵脚计量</div>
+      <div class="sf-stat">${eras.map(e =>
+        `<span class="chip">${esc(e)} ${totals[e].toLocaleString()}</span>`).join("")}</div>
+    </div>
+    <div class="card about"><p class="credit">格值为该韵部在该朝韵脚中的百分比（色深同此），
+    故各代篇数多寡不影响比较。${esc(data.note)}</p></div>`;
+});
+
 /* ── 视图：名句谱（跨代化用实证，非主观选录）──────────────── */
 route(/^\/famous$/, async () => {
   const rows = await getJSON("famous.json");
@@ -1115,6 +1348,7 @@ route(/^\/poets$/, async () => {
     </div>
     <hr class="rule-double">
     ${searchboxHTML("poet-q", "寻一诗人，如：李白 / 苏轼 / 纳兰")}
+    <a class="btn block" href="#/fingerprint">风格指纹 · 多维计量与二家对读 →</a>
     <div id="poet-list"></div>`;
   const listEl = document.getElementById("poet-list");
   const row = a => {
@@ -1182,6 +1416,8 @@ route(/^\/salon$/, async () => {
     ${kicker(2, "探究")}
     <div class="entry-grid">
       <a class="entry" href="#/famous"><b>名句谱</b><span>跨代化用 · 实证度量</span><span class="e-glyph">名</span></a>
+      <a class="entry" href="#/fingerprint"><b>风格指纹</b><span>意象 · 体裁 · 用韵 · 可对读</span><span class="e-glyph">纹</span></a>
+      <a class="entry" href="#/rhymeflow"><b>韵部流变</b><span>历代用韵之消长</span><span class="e-glyph">韵</span></a>
       <a class="entry" href="#/allusion"><b>典故</b><span>出处 · 寓意 · 歧义辨析</span><span class="e-glyph">典</span></a>
       <a class="entry" href="#/starmap"><b>意象星图</b><span>五十意象 · 同篇共现网络</span><span class="e-glyph">星</span></a>
       <a class="entry" href="#/matrix"><b>情象矩阵</b><span>情感 × 意象 · 点格入交叉</span><span class="e-glyph">矩</span></a>
@@ -1262,7 +1498,11 @@ route(/^\/cross$/, async (_m, query) => {
   try {
     if (want.img || want.emo || want.thm) {
       const ti = await getJSON("tag_index.json");
-      if (want.img) intersect(ti.imagery[want.img] || []);
+      /* 意象默认用全库广谱标注；wide=0 时限于档案层（经审核的规则挖掘结果） */
+      if (want.img) {
+        intersect(query.wide === "0" ? (ti.imagery[want.img] || [])
+          : (ti.wide[want.img] || ti.imagery[want.img] || []));
+      }
       if (want.emo) intersect(ti.emotion[want.emo] || []);
       if (want.thm) intersect(ti.theme[want.thm] || []);
     }
@@ -1843,6 +2083,18 @@ route(/^\/compose(?:\/(shipu|cipu|yun|check))?$/, async m => {
       const clashes = [...clashMap.entries()]
         .sort((a, b) => a[0] - b[0]).map(([i, hit]) => ({ i, hit }));
 
+      /* 撞句若属名句谱所收，另标其跨代化用之数 —— 撞名句与撞僻句轻重不同 */
+      let famous = [];
+      try {
+        const fl = await getJSON("famous.json");
+        famous = lines.map((l, i) => {
+          const flf = fold(l);
+          const hit = fl.find(r => flf.includes(r.span) || r.span.includes(flf));
+          return hit ? { i, span: hit.span, n: hit.n_poems, dyn: hit.n_dyn,
+                         src: hit.src } : null;
+        }).filter(Boolean);
+      } catch { /* 名句谱缺失时略过 */ }
+
       const violByLine = new Map();
       (fit ? fit.dev : []).forEach(d => {
         if (!violByLine.has(d.line)) violByLine.set(d.line, []);
@@ -1865,8 +2117,18 @@ route(/^\/compose(?:\/(shipu|cipu|yun|check))?$/, async m => {
               : nianDui.map(x => `<span class="v bad">第${hanNum(x.couplet)}联${esc(x.kind)}（第${hanNum(x.line + 1)}句第${x.pos + 1}字）</span>`).join("")}
             ${aojiu.map(a => `<span class="v">第${hanNum(a.i + 1)}句 ${esc(a.kind)}</span>`).join("")}
             ${tails.map(t => `<span class="v bad">第${hanNum(t.i + 1)}句${esc(t.kind)}</span>`).join("")}
-            ${clashes.map(c => `<span class="v bad">第${hanNum(c.i + 1)}句与古人撞句</span>`).join("")}
+            ${clashes.map(c => {
+              const fm = famous.find(f => f.i === c.i);
+              return `<span class="v bad">第${hanNum(c.i + 1)}句与古人撞句${
+                fm ? `（名句 · ${fm.dyn} 朝 ${fm.n} 家化用）` : ""}</span>`;
+            }).join("")}
           </div>
+          ${famous.length ? `<div class="legend" style="margin-top:8px">
+            ${famous.map(f => `第${hanNum(f.i + 1)}句含名句「<b>${esc(f.span)}</b>」——
+              最早见《${esc(f.src[1] || "无题")}》${esc(f.src[3])}·${esc(f.src[2])}，
+              历代 ${f.n} 家化用，跨 ${f.dyn} 朝。
+              <a href="#/famous/${encodeURIComponent(f.span)}" style="color:var(--seal)">溯流 →</a>`).join("<br>")}
+            <br>用名句非病 —— 化用得当自成新意，惟须知其来历，勿掠美为己出。</div>` : ""}
           ${aojiu.length ? `<div class="legend" style="margin-top:8px">
             ${aojiu.map(a => `第${hanNum(a.i + 1)}句 ${esc(a.kind)}：${esc(a.note)}`).join("　")}</div>` : ""}
         </div>
@@ -2479,11 +2741,20 @@ route(/^\/poem\/([^/]+)$/, async (m, query) => {
         </details>
         ${foldSec("注　释", poem.notes)}
         ${foldSec("赏　析", poem.appr)}
-        ${(poem.img && poem.img.length) ? `
-          <details class="fold" open><summary>篇中意象</summary>
-            <div class="fold-body">${poem.img.map(i =>
-              `<a class="tag-link" href="#/imagery/${encodeURIComponent(i)}">${esc(i)}</a>`).join("")}
-            </div></details>` : ""}
+        ${(() => {
+          const arch = poem.img || [];
+          const wide = (poem.wimg || []).filter(i => !arch.includes(i));
+          if (!arch.length && !wide.length) return "";
+          const links = arch.map(i =>
+            `<a class="tag-link" href="#/imagery/${encodeURIComponent(i)}">${esc(i)}</a>`).join("")
+            + wide.map(i =>
+            `<a class="tag-link wide" href="#/cross?img=${encodeURIComponent(i)}">${esc(i)}</a>`).join("");
+          const tip = arch.length && wide.length
+            ? `<div class="legend" style="margin-top:8px">前者为档案意象（附完整档案），后者为广谱标注（表面计量）。</div>`
+            : "";
+          return `<details class="fold" open><summary>篇中意象</summary>`
+            + `<div class="fold-body" style="white-space:normal">${links}${tip}</div></details>`;
+        })()}
         ${(poem.emo && poem.emo.length) ? `
           <details class="fold"><summary>情感基调</summary>
             <div class="fold-body">${poem.emo.map(e => `<span class="chip">${esc(e)}</span>`).join("")}</div>

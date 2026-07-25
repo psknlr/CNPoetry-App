@@ -68,6 +68,29 @@ def main() -> int:
 
     sys.path.insert(0, str(hermes))
     from hermes_poetry.textutil import t2s  # noqa: E402
+    from hermes_poetry.extract.phonology import GY_TO_PINGSHUI  # noqa: E402
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from imagery_lexicon import flat_lexicon, surface_pairs  # noqa: E402
+    # 广谱标注须覆盖全部意象（含 50 个档案意象）：流水线只为核心库标注了
+    # img 字段，明清补遗等未参与挖掘的作品若不通标，「白云」「青山」在册
+    # 却无标签。故此处把档案意象词表并入，对全库统一作表面标注。
+    from hermes_poetry.lexicon import IMAGERY as _ARCH_IMAGERY  # noqa: E402
+    WIDE_LEX = flat_lexicon()
+    for _name, _surfs in _ARCH_IMAGERY.items():
+        if _name in WIDE_LEX:
+            WIDE_LEX[_name]["surfaces"] = sorted(
+                set(WIDE_LEX[_name]["surfaces"]) | set(_surfs), key=len, reverse=True)
+        else:
+            WIDE_LEX[_name] = {"surfaces": sorted(set(_surfs), key=len, reverse=True),
+                               "category": "档案"}
+    WIDE_PAIRS = sorted(
+        [(s, n) for n, v in WIDE_LEX.items() for s in v["surfaces"]],
+        key=lambda x: -len(x[0]))
+    WIDE_BY_HEAD: dict = {}
+    for _surf, _canon in WIDE_PAIRS:          # 已按长度降序，最长优先自然满足
+        WIDE_BY_HEAD.setdefault(_surf[0], []).append((_surf, _canon))
+    WIDE_ORDER = {name: i for i, name in enumerate(WIDE_LEX)}
 
     total = 0
 
@@ -137,6 +160,17 @@ def main() -> int:
             rec["m"] = {k: v for k, v in
                         (("fm", met.get("form_metric")), ("rf", met.get("rhyme_feet")))
                         if v}
+        # 广谱意象标注：按首字索引筛候选，再作最长优先子串判定
+        # （直接遍历 539 条表面形式 × 13 万首过慢，首字过滤可去九成候选）
+        folded_text = t2s("".join(p.get("lines", [])))
+        wide_hit, seen_w = [], set()
+        for ch in set(folded_text):
+            for surf, canon in WIDE_BY_HEAD.get(ch, ()):
+                if canon not in seen_w and surf in folded_text:
+                    seen_w.add(canon)
+                    wide_hit.append(canon)
+        if wide_hit:
+            rec["wimg"] = sorted(wide_hit, key=lambda c: WIDE_ORDER.get(c, 999))
         shards[shard_of(rec["id"])].append(rec)
         by_id[rec["id"]] = rec
         shards_flat.append(rec)
@@ -466,17 +500,99 @@ def main() -> int:
               f"{sum(r['n_hits'] for r in allusions)} 处，候选待辨）")
 
     # ── 标签倒排索引：意象/情感/题材 → 目录行号（供交叉检索秒查）──
-    tag_index: dict = {"imagery": {}, "emotion": {}, "theme": {}}
+    tag_index: dict = {"imagery": {}, "emotion": {}, "theme": {}, "wide": {}}
     for i, p in enumerate(shards_flat):
         for key, field in (("imagery", "img"), ("emotion", "emo"), ("theme", "thm")):
             for v in (p.get(field) or []):
                 tag_index[key].setdefault(v, []).append(row_of[p["id"]])
+        for v in (p.get("wimg") or []):
+            tag_index["wide"].setdefault(v, []).append(row_of[p["id"]])
     for key in tag_index:
         for v in tag_index[key]:
             tag_index[key][v].sort()
     total += dump(out / "tag_index.json", tag_index)
-    print(f"标签倒排：意象 {len(tag_index['imagery'])} · "
+    print(f"标签倒排：档案意象 {len(tag_index['imagery'])} · 广谱意象 {len(tag_index['wide'])} · "
           f"情感 {len(tag_index['emotion'])} · 题材 {len(tag_index['theme'])}")
+
+    # ── 广谱意象总表（含门类、覆盖统计）───────────────────────────
+    wide_meta = []
+    for name, v in WIDE_LEX.items():
+        n = len(tag_index["wide"].get(name, []))
+        if n:
+            wide_meta.append({"name": name, "cat": v["category"],
+                              "surfaces": v["surfaces"], "n": n,
+                              "archive": name in {p["imagery"] for p in slim_profiles}})
+    wide_meta.sort(key=lambda r: -r["n"])
+    covered = len({i for ids in tag_index["wide"].values() for i in ids}
+                  | {i for ids in tag_index["imagery"].values() for i in ids})
+    total += dump(out / "imagery_wide.json", {
+        "items": wide_meta, "n_covered": covered, "n_total": len(catalog),
+        "note": "广谱意象为表面字面匹配的计量标注（B 层），不产生情感等推断结论；"
+                "档案意象另有情感光谱、共现网络与全量例证（经审核闸门）。"})
+    print(f"广谱意象 {len(wide_meta)} 个 · 覆盖 {covered}/{len(catalog)} 首"
+          f"（{covered / max(1, len(catalog)) * 100:.1f}%）")
+
+    # ── 诗人风格指纹（意象/体裁/韵部/篇幅多维；≥20 首者立档）──────
+    from collections import Counter as _C
+    prints_: dict = {}
+    for p in shards_flat:
+        a = p["a"]
+        if not a or a in ("佚名", "无名氏"):
+            continue
+        e = prints_.setdefault(a, {"n": 0, "d": _C(), "img": _C(), "g": _C(),
+                                   "yun": _C(), "len": 0, "books": _C()})
+        e["n"] += 1
+        e["d"][p["d"]] += 1
+        e["books"][p["b"]] += 1
+        e["g"][p["g"]] += 1
+        e["len"] += len(p.get("l") or [])
+        for im in (p.get("img") or []) + (p.get("wimg") or []):
+            e["img"][im] += 1
+        for c in ((p.get("m") or {}).get("rf") or []):
+            ps = None
+            rec = gy.get(c) or gy.get(t2s(c))
+            if rec:
+                for yun, tone, _f in rec[1]:
+                    ps = GY_TO_PINGSHUI.get(yun)
+                    if ps:
+                        e["yun"][ps] += 1
+                        break
+    fingerprints = []
+    for a, e in prints_.items():
+        if e["n"] < 20:
+            continue
+        fingerprints.append({
+            "author": a, "n": e["n"],
+            "dynasty": e["d"].most_common(1)[0][0],
+            "books": [b for b, _ in e["books"].most_common(3)],
+            "img": e["img"].most_common(12),
+            "genre": e["g"].most_common(6),
+            "yun": e["yun"].most_common(8),
+            "avg_lines": round(e["len"] / e["n"], 1)})
+    fingerprints.sort(key=lambda r: -r["n"])
+    total += dump(out / "fingerprints.json", fingerprints)
+    print(f"诗人指纹 {len(fingerprints)} 位（≥20 首）")
+
+    # ── 韵部时代流变：朝代 × 平水韵部（按韵脚计量）────────────────
+    flow: dict = {}
+    for p in shards_flat:
+        d = p["d"]
+        for c in ((p.get("m") or {}).get("rf") or []):
+            rec = gy.get(c) or gy.get(t2s(c))
+            if not rec:
+                continue
+            for yun, tone, _f in rec[1]:
+                ps = GY_TO_PINGSHUI.get(yun)
+                if ps:
+                    flow.setdefault(d, {}).setdefault(ps, 0)
+                    flow[d][ps] += 1
+                    break
+    total += dump(out / "rhyme_flow.json", {
+        "flow": flow,
+        "eras": [d for d, _ in DYN_SEQ if d in flow],
+        "note": "以各篇韵脚字依《广韵》归平水韵部计量；多音字取首个可归部读音，"
+                "不作语境消歧。仅反映本馆语料，非全代用韵之实况。"})
+    print(f"韵部流变：{len(flow)} 朝 × 平水韵部")
 
     # ── 题材：标志词汇 → 命中作品索引（供点词查作品）─────────────
     theme_hits = {}

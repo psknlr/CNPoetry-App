@@ -485,6 +485,24 @@ a.mx-cell:active { transform: scale(.9); }
 .filter-row::-webkit-scrollbar { height: 0; }
 .filter-row .chip { flex: none; }
 
+/* 风格指纹 */
+.fp-bar { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+.fp-bar .fp-k { flex: none; width: 4.2em; font-size: .86rem; letter-spacing: .06em; }
+.fp-bar .fp-k a { border-bottom: 1px solid var(--hairline-2); }
+.fp-bar i { height: 7px; border-radius: 4px; background: linear-gradient(90deg, var(--dai), color-mix(in srgb, var(--dai) 55%, var(--gold))); min-width: 3px; }
+.fp-bar b { font-size: .74rem; color: var(--ink-3); font-weight: 400; }
+.fp-duo { display: flex; align-items: center; gap: 4px; padding: 4px 0; }
+.fp-duo .fp-a, .fp-duo .fp-b { height: 8px; border-radius: 4px; min-width: 2px; }
+.fp-duo .fp-a { background: var(--ink); margin-left: auto; }
+.fp-duo .fp-b { background: var(--seal); }
+.fp-duo .fp-k2 { flex: none; width: 4.6em; text-align: center; font-size: .8rem; letter-spacing: .05em; }
+.person-row .chip.fp-pick { flex: none; margin: 0 6px 0 0; }
+
+/* 广谱意象格 */
+.img-cell.wide-cell { border-style: dashed; }
+.img-cell.wide-cell .g { color: var(--ink-2); }
+.tag-link.wide { color: var(--ink-2); border-bottom-style: dotted; }
+
 /* 名句谱 */
 .famous-row { display: block; padding: 12px 2px; border-bottom: 1px solid var(--hairline); }
 .famous-row:active { background: color-mix(in srgb, var(--ink) 4%, transparent); }
