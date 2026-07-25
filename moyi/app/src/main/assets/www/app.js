@@ -155,8 +155,9 @@ async function render() {
       t === (["", "poem"].includes(tab) ? "home" : tab) ||
       (t === "home" && path === "/") ||
       (t === "imagery" && tab === "imagery") ||
-      (t === "salon" && ["salon", "cipai", "theme", "feihua", "about", "starmap", "fav", "rhyme", "compose", "prose", "duike", "matrix", "fu"].includes(tab)) ||
-      (t === "lib" && ["lib", "search"].includes(tab)) ||
+      (t === "salon" && ["salon", "cipai", "theme", "feihua", "about", "starmap", "fav",
+        "rhyme", "compose", "prose", "duike", "matrix", "fu", "famous", "allusion", "compare"].includes(tab)) ||
+      (t === "lib" && ["lib", "search", "cross"].includes(tab)) ||
       (t === "poets" && tab === "poet"));
   });
   for (const { pattern, fn } of routes) {
@@ -347,7 +348,9 @@ route(/^\/imagery\/([^/]+)(?:\/(evi))?$/, async (m) => {
         ${(prof.emotion_associations || []).map(e => `
           <div class="emo-row">
             <div class="emo-head"><span class="name">${esc(e.emotion)}</span>
-              <span class="sup">${e.support} 处支撑</span></div>
+              <span class="sup">${e.support} 处支撑</span>
+              <a class="go" style="margin-left:auto;font-size:.76rem;color:var(--seal)"
+                 href="#/cross?emo=${encodeURIComponent(e.emotion)}&img=${encodeURIComponent(name)}">交叉 →</a></div>
             <div class="emo-bar"><i style="width:${Math.round(e.support / maxSup * 100)}%"></i></div>
             ${e.example ? `<a class="emo-quote" href="#/poem/${encodeURIComponent(e.example.poem_id)}?hl=${encodeURIComponent(e.example.quote)}">
                 「<span class="q">${esc(e.example.quote)}</span>」<span class="src">·《${esc(e.example.title)}》→</span></a>` : ""}
@@ -441,15 +444,19 @@ route(/^\/lib$/, async (_m, query) => {
       ${kicker(hist.length ? 2 : 1, "集部书架", shelves.length + " 朝 · " +
         shelves.reduce((s, e) => s + e.books.length, 0) + " 集")}
       ${shelves.map(era => `
-        <div class="era-block">
-          <div class="era-head"><b>${esc(era.era)}</b><span>${era.n.toLocaleString()} 首</span></div>
+        <div class="era-block${era.transitional ? " era-trans" : ""}">
+          <div class="era-head"><b>${esc(era.era)}</b>
+            ${era.transitional ? `<em class="era-tag">跨代</em>` : ""}
+            <span>${era.n.toLocaleString()} 首</span></div>
           ${era.books.map(b => `
-            <a class="shelf-row" href="#/lib/book/${encodeURIComponent(b.book)}">
+            <a class="shelf-row" href="#/lib/book/${encodeURIComponent(b.book)}?era=${encodeURIComponent(era.era)}">
               <span class="sb-name">${esc(b.book)}</span>
               <span class="sb-meta">${b.genres.map(([g, n]) => esc(g) + " " + n).join(" · ")}</span>
               <span class="sb-n">${b.n.toLocaleString()} 首 →</span>
             </a>`).join("")}
-        </div>`).join("")}`;
+        </div>`).join("")}
+      <div class="card about"><p class="credit">朝代按时序排列；「跨代」为作者活动横跨两朝之标签
+      （如元末明初），与主朝代并列而不重复计数 —— 同一集部在不同朝代下各按其朝代作品计。</p></div>`;
     body.querySelectorAll(".hist-q").forEach(b => b.onclick = () => {
       input.value = b.textContent; search(b.textContent);
     });
@@ -522,13 +529,13 @@ function snippetOf(text, fq) {
 }
 
 /* ── 视图：集部（子目筛选 / 体裁 / 作者）─────────────────────── */
-route(/^\/lib\/book\/([^/]+)$/, async m => {
-  const book = m[1];
+route(/^\/lib\/book\/([^/]+)$/, async (m, query) => {
+  const book = m[1], eraLimit = query.era || "";
   $view.innerHTML = `
     <div class="reader-top">${backBtn("文库", "#/lib")}${sealHTML(book)}</div>
     <div id="bk-body"><div class="loading">展 卷 中 …</div></div>`;
   const { rows } = await catalog();
-  const all = rows.filter(r => r[4] === book);
+  const all = rows.filter(r => r[4] === book && (!eraLimit || r[3] === eraLimit));
   if (!all.length) { document.getElementById("bk-body").innerHTML = `<div class="empty">此集空无一卷</div>`; return; }
 
   const isYuanqu = book === "元曲";
@@ -546,7 +553,9 @@ route(/^\/lib\/book\/([^/]+)$/, async m => {
   const body = document.getElementById("bk-body");
   body.innerHTML = `
     <div class="masthead"><div><h1 style="font-size:1.7rem;letter-spacing:.2em">${esc(book)}</h1>
-      <div class="sub">${all.length.toLocaleString()} 首 · ${subs.length} ${isYuanqu ? "剧目/散套" : "作者"}</div></div></div>
+      <div class="sub">${eraLimit ? esc(eraLimit) + " · " : ""}${all.length.toLocaleString()} 首 · ${subs.length} ${isYuanqu ? "剧目/散套" : "作者"}</div></div>
+      ${eraLimit ? `<a class="btn" href="#/lib/book/${encodeURIComponent(book)}" style="align-self:center">全朝代 →</a>` : ""}
+    </div>
     <hr class="rule-double">
     ${genres.length > 1 ? `<div class="filter-row" id="g-row">
       <button class="chip on" data-g="">全部体裁</button>
@@ -845,6 +854,168 @@ route(/^\/prose\/([^/]+)$/, async m => {
   };
 });
 
+/* ── 视图：名句谱（跨代化用实证，非主观选录）──────────────── */
+route(/^\/famous$/, async () => {
+  const rows = await getJSON("famous.json");
+  await foldMap();
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("风雅集", "#/salon")}${sealHTML("名句谱")}</div>
+    <div class="masthead"><div><h1>名句</h1><div class="sub">${rows.length} 条 · 被后世跨代化用</div></div></div>
+    <hr class="rule-double">
+    <div class="card about"><p>此谱不作主观选录，而以「<b>被后世跨朝代反复化用</b>」为客观度量：
+    凡一语段在两个以上朝代的作品中重现者入谱，按跨代数与涉篇数排序。</p>
+    <p class="credit">元杂剧的科介宾白（如「张千云理会的」）在集内高频重复却不跨代流传，已由跨代闸门自然滤除。</p></div>
+    ${searchboxHTML("fm-q", "寻一名句，如：明月 / 阳关 / 白发")}
+    <div id="fm-list"></div>`;
+  const listEl = document.getElementById("fm-list");
+  const row = r => `<a class="famous-row" href="#/famous/${encodeURIComponent(r.span)}">
+      <div class="fm-span">${esc(r.span)}</div>
+      <div class="fm-meta">${r.n_dyn} 朝 ${esc(r.dynasties.join("→"))} · 涉 ${r.n_poems} 篇
+        · 最早见《${esc(r.src[1] || "无题")}》${esc(r.src[3])}·${esc(r.src[2])}</div>
+    </a>`;
+  const draw = q => {
+    const fq = fold(q);
+    progressiveList(listEl, rows.filter(r => !fq || fold(r.span).includes(fq)), row, 50);
+  };
+  draw("");
+  document.getElementById("fm-q").oninput = e => draw(e.target.value.trim());
+});
+
+route(/^\/famous\/(.+)$/, async m => {
+  const rows = await getJSON("famous.json");
+  const r = rows.find(x => x.span === m[1]);
+  if (!r) { $view.innerHTML = `<div class="empty">名句谱未收此语段</div>`; return; }
+  const { byId } = await catalog();
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("名句谱", "#/famous")}${sealHTML("名句")}</div>
+    <div class="poem-paper" style="padding:26px 22px">
+      <div class="p-lines" style="font-size:1.3rem;line-height:2">${esc(r.span)}</div>
+      <div class="p-meta" style="margin-top:10px">跨 ${r.n_dyn} 朝 · ${esc(r.dynasties.join(" → "))} · 涉 ${r.n_poems} 篇</div>
+    </div>
+    ${kicker(1, "最早见于", "按朝代时序")}
+    <div id="fm-src"></div>
+    ${kicker(2, "历代重现", r.poems.length + " 篇")}
+    <div id="fm-poems"></div>
+    <div class="card about"><p class="credit">重现关系由语料互文规则归纳（共享语段 ≥5 字）；
+    化用、同源与偶合未加区分，先后仅按朝代时序排列，不作影响判定。</p></div>`;
+  const src = byId.get(r.src[0]);
+  document.getElementById("fm-src").innerHTML = src
+    ? poemRowHTML(src, `「<span style="color:var(--seal)">${esc(r.span)}</span>」`)
+    : `<div class="empty">—</div>`;
+  const list = r.poems.map(p => byId.get(p[0])).filter(Boolean);
+  progressiveList(document.getElementById("fm-poems"), list,
+    x => poemRowHTML(x, ""), 40);
+});
+
+/* ── 视图：典故（种子表 + 语料表面命中，候选待辨）─────────── */
+route(/^\/allusion$/, async () => {
+  const rows = await getJSON("allusions.json");
+  await foldMap();
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("风雅集", "#/salon")}${sealHTML("典故")}</div>
+    <div class="masthead"><div><h1>典故</h1><div class="sub">${rows.length} 则 · 出处与寓意</div></div></div>
+    <hr class="rule-double">
+    ${searchboxHTML("al-q", "寻一典，如：折柳 / 楼兰 / 南柯")}
+    <div id="al-list"></div>
+    <div class="card about"><p class="credit">典故为编辑精选种子（非穷举），出处指向公有领域典籍；
+    语料命中系<b>表面字面匹配</b>，只作候选 —— 同一字面未必用典（如「楼兰」亦可实指西域政权），
+    请据上下文自辨。</p></div>`;
+  const listEl = document.getElementById("al-list");
+  const row = a => `<a class="person-row" href="#/allusion/${encodeURIComponent(a.id)}">
+      <span class="avatar">${esc([...a.name][0] || "典")}</span>
+      <span class="who"><b>${esc(a.name)}</b><span>${esc(a.implies || "")}${a.ambiguity ? " · 有歧义" : ""}</span></span>
+      <span class="cnt">${a.n_hits} 处</span></a>`;
+  const draw = q => {
+    const fq = fold(q);
+    progressiveList(listEl, rows.filter(a => !fq || fold(a.name).includes(fq) ||
+      (a.surfaces || []).some(s => fold(s).includes(fq))), row, 50);
+  };
+  draw("");
+  document.getElementById("al-q").oninput = e => draw(e.target.value.trim());
+});
+
+route(/^\/allusion\/([^/]+)$/, async m => {
+  const rows = await getJSON("allusions.json");
+  const a = rows.find(x => x.id === m[1]);
+  if (!a) { $view.innerHTML = `<div class="empty">未收此典</div>`; return; }
+  const { rows: cat } = await catalog();
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("典故", "#/allusion")}${sealHTML(a.name)}</div>
+    <div class="img-hero"><span class="big" style="font-size:2.6rem">${esc(a.name)}</span>
+      <div class="facts"><div class="nums">表面命中 ${a.n_hits} 处</div>
+        <div class="forms">${(a.surfaces || []).map(s => `<span class="form-tag">${esc(s)}</span>`).join("")}</div></div></div>
+    <div class="card">
+      <div class="sf-label">出　处</div><div class="bio">${esc(a.source || "—")}</div>
+      <div class="sf-label">寓　意</div><div class="bio">${esc(a.implies || "—")}</div>
+      ${a.ambiguity ? `<div class="sf-label">歧义辨析</div>
+        <div class="bio" style="color:var(--seal)">${esc(a.ambiguity)}</div>` : ""}
+      ${a.status ? `<div class="legend" style="margin-top:10px">审核状态：${esc(a.status)}</div>` : ""}
+    </div>
+    ${kicker(1, "语料命中", a.n_hits + " 处 · 候选待辨")}
+    <div id="al-poems"></div>`;
+  const list = (a.hits || []).map(i => cat[i]).filter(Boolean);
+  progressiveList(document.getElementById("al-poems"), list, r => poemRowHTML(r), 50);
+});
+
+/* ── 视图：对读（两篇并置比对）──────────────────────────── */
+const CMP_KEY = "moyi_compare";
+const getCmp = () => { try { return JSON.parse(localStorage.getItem(CMP_KEY) || "[]"); } catch { return []; } };
+function toggleCmp(id) {
+  let arr = getCmp().filter(x => x !== id);
+  if (arr.length === getCmp().length) arr.unshift(id);
+  arr = arr.slice(0, 2);
+  try { localStorage.setItem(CMP_KEY, JSON.stringify(arr)); } catch { /* 忽略 */ }
+  return arr;
+}
+route(/^\/compare$/, async () => {
+  const ids = getCmp();
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("返回")}${sealHTML("对读")}</div>
+    <div id="cmp-body"><div class="loading">并 置 中 …</div></div>`;
+  const body = document.getElementById("cmp-body");
+  if (ids.length < 2) {
+    body.innerHTML = `<div class="empty">尚未择定两篇<br>
+      <small style="letter-spacing:.1em">阅读任一篇时点「对读」即可择入，满二篇自动并置</small></div>`;
+    return;
+  }
+  const [a, b] = await Promise.all(ids.map(poemById));
+  if (!a || !b) { body.innerHTML = `<div class="empty">所择篇目不在馆藏</div>`; return; }
+  await foldMap();
+  const setOf = p => new Set([...cjkOnly(fold(p.l.join("")))]);
+  const sa = setOf(a), sb = setOf(b);
+  const shared = [...sa].filter(c => sb.has(c));
+  const imgA = new Set(a.img || []), imgB = new Set(b.img || []);
+  const sharedImg = [...imgA].filter(i => imgB.has(i));
+  const emoA = new Set(a.emo || []), emoB = new Set(b.emo || []);
+  const sharedEmo = [...emoA].filter(e => emoB.has(e));
+  const col = p => `
+    <div class="cmp-col">
+      <a class="cmp-title" href="#/poem/${encodeURIComponent(p.id)}">${esc(p.t || "无题")}</a>
+      <div class="cmp-meta">${esc([p.d, p.a].filter(Boolean).join(" · "))}<br>${esc(p.b)}${p.g ? " · " + esc(p.g) : ""}</div>
+      <div class="cmp-lines">${p.l.map(ln => `<div>${[...ln].map(c =>
+        shared.includes(fold(c)) ? `<span class="sh">${esc(c)}</span>` : esc(c)).join("")}</div>`).join("")}</div>
+    </div>`;
+  body.innerHTML = `
+    <div class="card cmp-wrap">${col(a)}<div class="cmp-rule"></div>${col(b)}</div>
+    ${kicker(1, "同异", "计量比对")}
+    <div class="card">
+      <div class="cmp-row"><b>共用字</b><span>${shared.length} 字${shared.length ? "：" + esc(shared.slice(0, 24).join(" ")) : ""}</span></div>
+      <div class="cmp-row"><b>共有意象</b><span>${sharedImg.length ? sharedImg.map(i =>
+        `<a class="chip" href="#/imagery/${encodeURIComponent(i)}">${esc(i)}</a>`).join("") : "—"}</span></div>
+      <div class="cmp-row"><b>共有情感</b><span>${sharedEmo.length ? sharedEmo.map(e =>
+        `<a class="chip" href="#/cross?emo=${encodeURIComponent(e)}">${esc(e)}</a>`).join("") : "—"}</span></div>
+      <div class="cmp-row"><b>篇幅</b><span>${a.l.length} 句 / ${b.l.length} 句</span></div>
+      <div class="cmp-row"><b>体裁</b><span>${esc(a.g || "—")} / ${esc(b.g || "—")}</span></div>
+    </div>
+    <button class="btn block" id="cmp-clear">清空对读</button>
+    <div class="card about"><p class="credit">共用字为逐字比对（简繁折叠后），朱砂标出；意象与情感取自规则挖掘层，
+    明清补遗未参与挖掘故无标注。此为形式计量，不代作优劣与影响判断。</p></div>`;
+  document.getElementById("cmp-clear").onclick = () => {
+    try { localStorage.removeItem(CMP_KEY); } catch { /* 忽略 */ }
+    render();
+  };
+});
+
 /* ── 视图：辞赋（御定历代赋汇 3772 篇）────────────────────── */
 route(/^\/fu$/, async () => {
   const idx = await getJSON("fu_index.json");
@@ -1010,14 +1181,17 @@ route(/^\/salon$/, async () => {
     </div>
     ${kicker(2, "探究")}
     <div class="entry-grid">
+      <a class="entry" href="#/famous"><b>名句谱</b><span>跨代化用 · 实证度量</span><span class="e-glyph">名</span></a>
+      <a class="entry" href="#/allusion"><b>典故</b><span>出处 · 寓意 · 歧义辨析</span><span class="e-glyph">典</span></a>
       <a class="entry" href="#/starmap"><b>意象星图</b><span>五十意象 · 同篇共现网络</span><span class="e-glyph">星</span></a>
-      <a class="entry" href="#/matrix"><b>情象矩阵</b><span>情感 × 意象 · 计量热力</span><span class="e-glyph">矩</span></a>
-      <a class="entry" href="#/theme"><b>题材九品</b><span>${stats.themes} 品 · 咏史至闺怨</span><span class="e-glyph">品</span></a>
+      <a class="entry" href="#/matrix"><b>情象矩阵</b><span>情感 × 意象 · 点格入交叉</span><span class="e-glyph">矩</span></a>
+      <a class="entry" href="#/theme"><b>题材九品</b><span>${stats.themes} 品 · 点词查作品</span><span class="e-glyph">品</span></a>
+      <a class="entry" href="#/compare"><b>对读</b><span>两篇并置 · 同异计量</span><span class="e-glyph">对</span></a>
+    </div>
+    ${kicker(3, "文苑 · 游艺 · 私藏")}
+    <div class="entry-grid">
       <a class="entry" href="#/fu"><b>辞赋</b><span>历代赋汇 · 三千七百篇</span><span class="e-glyph">赋</span></a>
       <a class="entry" href="#/prose"><b>文苑</b><span>古文观止 · 二百廿二篇</span><span class="e-glyph">文</span></a>
-    </div>
-    ${kicker(3, "游艺 · 私藏")}
-    <div class="entry-grid">
       <a class="entry" href="#/feihua"><b>飞花令</b><span>以字为令 · 语料实证应对</span><span class="e-glyph">飞</span></a>
       <a class="entry" href="#/fav"><b>收藏夹</b><span>${getFavs().length} 首 · 私藏诗笺</span><span class="e-glyph">藏</span></a>
       <a class="entry" href="#/search"><b>高级检索</b><span>多条件组合 · 专业口径</span><span class="e-glyph">检</span></a>
@@ -1025,7 +1199,7 @@ route(/^\/salon$/, async () => {
     </div>`;
 });
 
-/* ── 视图：情感 × 意象矩阵（计量热力）─────────────────────── */
+/* ── 视图：情感 × 意象矩阵（计量热力 · 处处可入）─────────── */
 route(/^\/matrix$/, async () => {
   const net = await getJSON("network.json");
   const mx = net.emotion_imagery_matrix || {};
@@ -1036,6 +1210,7 @@ route(/^\/matrix$/, async () => {
   }
   const imgs = [...imgSet.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(x => x[0]);
   const max = Math.max(...emotions.flatMap(e => imgs.map(i => mx[e][i] || 0)), 1);
+  const xs = (e, i) => `#/cross?emo=${encodeURIComponent(e)}&img=${encodeURIComponent(i)}`;
   $view.innerHTML = `
     <div class="reader-top">${backBtn("风雅集", "#/salon")}${sealHTML("情象矩阵")}</div>
     <div class="masthead"><div><h1>情象</h1><div class="sub">情感 × 意象 · 同篇计量</div></div></div>
@@ -1043,18 +1218,90 @@ route(/^\/matrix$/, async () => {
     <div class="card" style="overflow-x:auto">
       <table class="mx-table">
         <thead><tr><th></th>${imgs.map(i =>
-          `<th><a href="#/imagery/${encodeURIComponent(i)}">${esc(i)}</a></th>`).join("")}</tr></thead>
+          `<th><a href="#/cross?img=${encodeURIComponent(i)}">${esc(i)}</a></th>`).join("")}</tr></thead>
         <tbody>${emotions.map(e => `<tr>
-          <th class="mx-emo">${esc(e)}</th>
+          <th class="mx-emo"><a href="#/cross?emo=${encodeURIComponent(e)}">${esc(e)}</a></th>
           ${imgs.map(i => {
             const v = mx[e][i] || 0;
             const a = v / max;
-            return `<td><span class="mx-cell" style="--a:${a.toFixed(3)}" title="${esc(e)} × ${esc(i)}：${v}">${v || ""}</span></td>`;
+            return `<td>${v
+              ? `<a class="mx-cell" href="${xs(e, i)}" style="--a:${a.toFixed(3)}"
+                   title="${esc(e)} × ${esc(i)}：${v} 篇 · 点开对读">${v}</a>`
+              : `<span class="mx-cell" style="--a:0"></span>`}</td>`;
           }).join("")}</tr>`).join("")}</tbody>
       </table>
     </div>
     <div class="card about"><p class="credit">格值为该情感与该意象在同一作品中共现的篇数（B 层确定性计量，可回源复算）；
-    色深与数值成正比。点表头意象可展开其档案。</p></div>`;
+    色深与数值成正比。<b>点格进交叉作品，点行首情感、点表头意象各自成集</b>。</p></div>`;
+});
+
+/* ── 视图：交叉检索（意象 × 情感 × 题材 × 语词，处处可入）─── */
+route(/^\/cross$/, async (_m, query) => {
+  const want = {
+    img: query.img || "", emo: query.emo || "",
+    thm: query.thm || "", term: query.term || "",
+  };
+  const labels = [
+    want.img && `意象「${want.img}」`, want.emo && `情感「${want.emo}」`,
+    want.thm && `题材「${want.thm}」`, want.term && `语词「${want.term}」`,
+  ].filter(Boolean);
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("返回")}${sealHTML("交叉")}</div>
+    <div class="masthead"><div><h1 style="font-size:1.7rem;letter-spacing:.15em">${esc(labels.join(" × ") || "交叉检索")}</h1>
+      <div class="sub" id="cross-sub">检 索 中 …</div></div></div>
+    <hr class="rule-double">
+    <div id="cross-body"><div class="loading">交 叉 求 集 中 …</div></div>`;
+
+  const { rows } = await catalog();
+  await foldMap();
+  let idxSet = null;                       // 目录行号集合（求交）
+  const intersect = arr => {
+    const s = new Set(arr);
+    idxSet = idxSet === null ? s : new Set([...idxSet].filter(x => s.has(x)));
+  };
+  try {
+    if (want.img || want.emo || want.thm) {
+      const ti = await getJSON("tag_index.json");
+      if (want.img) intersect(ti.imagery[want.img] || []);
+      if (want.emo) intersect(ti.emotion[want.emo] || []);
+      if (want.thm) intersect(ti.theme[want.thm] || []);
+    }
+    if (want.term) {
+      const tt = await getJSON("theme_terms.json");
+      const key = fold(cjkOnly(want.term));
+      if (tt[key]) intersect(tt[key]);
+      else {                                // 索引外的词：全文扫描
+        const hits = await scanFullText(text => text.includes(key), null, 2000);
+        const idset = new Set(hits.map(r => r[0]));
+        intersect(rows.map((r, i) => idset.has(r[0]) ? i : -1).filter(i => i >= 0));
+      }
+    }
+  } catch { /* 索引缺失时留空 */ }
+
+  const hits = idxSet ? [...idxSet].sort((a, b) => a - b).map(i => rows[i]).filter(Boolean) : [];
+  const byEra = {}, byBook = {};
+  for (const r of hits) {
+    byEra[r[3]] = (byEra[r[3]] || 0) + 1;
+    byBook[r[4]] = (byBook[r[4]] || 0) + 1;
+  }
+  document.getElementById("cross-sub").textContent = `${hits.length.toLocaleString()} 首交叉命中`;
+  document.getElementById("cross-body").innerHTML = hits.length ? `
+    <div class="card">
+      <div class="sf-stat">${Object.entries(byEra).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
+        `<span class="chip">${esc(k)} ${v}</span>`).join("")}</div>
+      <div class="sf-stat">${Object.entries(byBook).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) =>
+        `<span class="chip seal-chip">${esc(k)} ${v}</span>`).join("")}</div>
+    </div>
+    ${want.img || want.emo ? `<div class="filter-row">
+      ${want.img ? `<a class="chip" href="#/imagery/${encodeURIComponent(want.img)}">意象档案 · ${esc(want.img)} →</a>` : ""}
+      ${want.thm ? `<a class="chip" href="#/theme/${encodeURIComponent(want.thm)}">题材 · ${esc(want.thm)} →</a>` : ""}
+      <a class="chip" href="#/matrix">情象矩阵 →</a>
+    </div>` : ""}
+    <div id="cross-list"></div>`
+    : `<div class="empty">此交叉无作品<br><small style="letter-spacing:.1em">意象与情感的标注仅及核心库；明清补遗未参与规则挖掘</small></div>`;
+  if (hits.length) {
+    progressiveList(document.getElementById("cross-list"), hits, r => poemRowHTML(r), 60);
+  }
 });
 
 /* ── 创作实验室：诗谱 / 词谱（龙谱）/ 韵表 / 校验 ──────────── */
@@ -2056,10 +2303,15 @@ route(/^\/theme\/([^/]+)$/, async m => {
     <div class="img-hero"><span class="big" style="font-size:2.6rem">${esc(t.theme)}</span>
       <div class="facts"><div class="nums">${t.n_poems} 首归品</div></div></div>
     <div class="card about"><p>${esc(t.definition || "")}</p></div>
-    ${kicker(1, "标志语汇")}
-    <div class="card">${(t.marker_terms || []).map(w => `<span class="chip">${esc(w)}</span>`).join("")}</div>
-    ${kicker(2, "常见意象")}
-    <div class="card">${(t.top_imagery || []).map(i => `<a class="chip" href="#/imagery/${encodeURIComponent(i.imagery)}">${esc(i.imagery)} · ${i.count}</a>`).join("")}</div>
+    ${kicker(1, "标志语汇", "点词查作品")}
+    <div class="card">${(t.marker_terms || []).map(w =>
+      `<a class="chip" href="#/cross?term=${encodeURIComponent(w)}">${esc(w)}</a>`).join("")}
+      <div class="legend" style="margin-top:8px">点一语汇即检出语料中含此词的全部作品；
+      配合本品可作「词—题材」互证。</div></div>
+    ${kicker(2, "常见意象", "点入交叉")}
+    <div class="card">${(t.top_imagery || []).map(i =>
+      `<a class="chip" href="#/cross?img=${encodeURIComponent(i.imagery)}&thm=${encodeURIComponent(t.theme)}">${esc(i.imagery)} · ${i.count}</a>`).join("")}
+      <div class="legend" style="margin-top:8px">点入即得「此意象 × 本题材」的交叉作品。</div></div>
     ${kicker(3, "归品作品", (t.supporting_poems || []).length + " 首")}
     <div id="th-poems"><div class="loading">展 卷 中 …</div></div>`;
   const { byId } = await catalog();
@@ -2199,6 +2451,7 @@ route(/^\/poem\/([^/]+)$/, async (m, query) => {
       <div class="reader-top">${backBtn("返回")}
         <div class="r-tools">
           <button id="r-fav" class="${isFav(poem.id) ? "fav-on" : ""}">${isFav(poem.id) ? "已藏" : "藏"}</button>
+          <button id="r-cmp" class="${getCmp().includes(poem.id) ? "on" : ""}">对读</button>
           <button id="r-metric">律</button>
           <button id="r-vert">竖排</button>
         </div>
@@ -2254,6 +2507,11 @@ route(/^\/poem\/([^/]+)$/, async (m, query) => {
     const on = toggleFav({ id: poem.id, t: poem.t, a: poem.a, d: poem.d });
     e.target.classList.toggle("fav-on", on);
     e.target.textContent = on ? "已藏" : "藏";
+  };
+  document.getElementById("r-cmp").onclick = e => {
+    const arr = toggleCmp(poem.id);
+    e.target.classList.toggle("on", arr.includes(poem.id));
+    if (arr.length === 2) location.hash = "#/compare";
   };
 
   /* 律：平仄注音开关（懒加载广韵表） */

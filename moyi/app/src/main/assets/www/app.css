@@ -457,8 +457,10 @@ button {
   width: 2.5em; height: 2.1em; border-radius: 5px;
   background: color-mix(in srgb, var(--dai) calc(var(--a) * 78%), transparent);
   color: color-mix(in srgb, var(--ink) calc(35% + var(--a) * 65%), transparent);
-  font-size: .72rem;
+  font-size: .72rem; transition: transform .12s;
 }
+a.mx-cell:active { transform: scale(.9); }
+.mx-table .mx-emo a { border-bottom: 1px solid var(--hairline-2); }
 
 /* 高级检索表单 */
 .sf-row { display: flex; align-items: center; gap: 12px; padding: 7px 0; }
@@ -482,6 +484,34 @@ button {
 }
 .filter-row::-webkit-scrollbar { height: 0; }
 .filter-row .chip { flex: none; }
+
+/* 名句谱 */
+.famous-row { display: block; padding: 12px 2px; border-bottom: 1px solid var(--hairline); }
+.famous-row:active { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.famous-row .fm-span { font-size: 1.08rem; letter-spacing: .08em; }
+.famous-row .fm-meta { margin-top: 3px; font-size: .74rem; color: var(--ink-3); letter-spacing: .04em; }
+
+/* 对读 */
+.cmp-wrap { display: flex; gap: 0; align-items: stretch; padding: 18px 10px; }
+.cmp-col { flex: 1; min-width: 0; padding: 0 8px; }
+.cmp-rule { flex: none; width: 1px; background: var(--hairline-2); }
+.cmp-title { display: block; font-size: 1.02rem; font-weight: 700; letter-spacing: .06em; text-align: center; }
+.cmp-meta { text-align: center; font-size: .72rem; color: var(--ink-3); margin: 4px 0 10px; line-height: 1.6; }
+.cmp-lines { font-size: .92rem; line-height: 2; letter-spacing: .04em; text-align: center; }
+.cmp-lines .sh { color: var(--seal); }
+.cmp-row { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px dashed var(--hairline); font-size: .86rem; }
+.cmp-row:last-child { border-bottom: none; }
+.cmp-row b { flex: none; width: 5.2em; color: var(--ink-2); font-weight: 400; letter-spacing: .1em; }
+.cmp-row span { flex: 1; min-width: 0; color: var(--ink-2); }
+
+/* 跨代朝代块 */
+.era-block.era-trans { opacity: .92; padding-left: 12px; border-left: 2px solid var(--hairline); }
+.era-block.era-trans .era-head b { font-size: .92rem; color: var(--ink-2); }
+.era-tag {
+  font-style: normal; font-size: .6rem; letter-spacing: .12em; color: var(--dai);
+  border: 1px solid color-mix(in srgb, var(--dai) 40%, transparent);
+  border-radius: 999px; padding: 0 7px;
+}
 
 /* 分层书架 */
 .era-block { margin-bottom: 18px; }

@@ -19,6 +19,17 @@ from pathlib import Path
 
 N_SHARDS = 48
 
+# 朝代时序（第二项为 1 表示跨代过渡期，前端另作样式，避免与主朝代平级）
+DYN_SEQ = [
+    ("先秦", 0), ("秦", 0), ("汉", 0), ("汉魏", 0), ("魏晋", 0),
+    ("南北朝", 0), ("隋", 0), ("隋末唐初", 1), ("唐", 0), ("唐末宋初", 1),
+    ("五代", 0), ("宋", 0), ("宋末金初", 1), ("金", 0), ("金末元初", 1),
+    ("宋末元初", 1), ("元", 0), ("元末明初", 1), ("明", 0), ("明末清初", 1),
+    ("清", 0), ("清末民国初", 1), ("清末近现代初", 1), ("近现代", 0), ("未知", 0),
+]
+ORDER = {name: i for i, (name, _) in enumerate(DYN_SEQ)}
+TRANS = {name for name, t in DYN_SEQ if t}
+
 
 def read_jsonl(path: Path):
     with path.open(encoding="utf-8") as fh:
@@ -96,6 +107,8 @@ def main() -> int:
     shards = [[] for _ in range(N_SHARDS)]
     catalog = []
     by_id = {}
+    shards_flat = []      # 按目录顺序的全部作品（建倒排索引用）
+    row_of = {}           # poem_id → 目录行号
     for p in list(read_jsonl(poetry / "poems" / "poems.jsonl")) + extra_poems:
         rec = OrderedDict()
         rec["id"] = p["poem_id"]
@@ -126,6 +139,8 @@ def main() -> int:
                         if v}
         shards[shard_of(rec["id"])].append(rec)
         by_id[rec["id"]] = rec
+        shards_flat.append(rec)
+        row_of[rec["id"]] = len(catalog)
         # 目录行：id|题|作者|朝代|集|体裁|词牌|检索文本(简体折叠)
         folded = t2s("".join(p.get("lines", [])))
         catalog.append([rec["id"], rec["t"], rec["a"], rec["d"], rec["b"],
@@ -392,6 +407,94 @@ def main() -> int:
             "abstract": sl.get("abstract", ""), "chapters": duike})
         print(f"对课（声律启蒙）{len(duike)} 韵")
 
+    # ── 名句谱：被后世跨代化用的语段（实证度量，非主观选录）──────
+    # 领域要点：元杂剧的科介宾白（「张千云理会的」等）在集内高频重复，
+    # 但不跨代流传；以「涉及≥2 个朝代」为闸门可自然滤除，留下真正被
+    # 后世反复化用的句子。
+    if itx_file.exists():
+        from collections import defaultdict as _dd
+        span_poems: dict = _dd(set)
+        span_cnt: dict = {}
+        for r in read_jsonl(itx_file):
+            s = r.get("shared_span", "")
+            if len(s) < 5:
+                continue
+            span_cnt[s] = span_cnt.get(s, 0) + 1
+            for pid in (r.get("source_poem_id"), r.get("target_poem_id")):
+                if pid in by_id:
+                    span_poems[s].add(pid)
+        famous = []
+        for s, pids in span_poems.items():
+            dyns = {by_id[p]["d"] for p in pids}
+            if len(dyns) < 2:
+                continue
+            # 最早出处：按朝代时序取首篇
+            ordered = sorted(pids, key=lambda p: ORDER.get(by_id[p]["d"], 990))
+            src = by_id[ordered[0]]
+            famous.append({
+                "span": s, "n_poems": len(pids), "n_dyn": len(dyns),
+                "dynasties": sorted(dyns, key=lambda d: ORDER.get(d, 990)),
+                "cites": span_cnt.get(s, 0),
+                "src": [src["id"], src["t"], src["a"], src["d"]],
+                "poems": [[by_id[p]["id"], by_id[p]["t"], by_id[p]["a"], by_id[p]["d"]]
+                          for p in ordered[:20]]})
+        famous.sort(key=lambda r: (-r["n_dyn"], -r["n_poems"], -len(r["span"])))
+        total += dump(out / "famous.json", famous)
+        print(f"名句谱 {len(famous)} 条（跨代化用实证）")
+
+    # ── 典故：种子表（含出处、寓意与歧义辨析）+ 语料命中索引 ──────
+    allu_file = hermes / "data" / "raw" / "allusions" / "allusion_seeds.jsonl"
+    if allu_file.exists():
+        seeds = [r for r in read_jsonl(allu_file) if r.get("id")]
+        allusions = []
+        for a in seeds:
+            surfaces = [t2s(s) for s in (a.get("surfaces") or [a.get("name", "")])]
+            hits = []
+            for i, row in enumerate(catalog):
+                if any(s in row[7] for s in surfaces):
+                    hits.append(i)
+                if len(hits) >= 200:
+                    break
+            allusions.append({
+                "id": a["id"], "name": a.get("name", ""), "surfaces": a.get("surfaces") or [],
+                "source": a.get("source", ""), "implies": a.get("implies", ""),
+                "status": a.get("status", ""), "ambiguity": a.get("ambiguity_note", ""),
+                "n_hits": len(hits), "hits": hits})
+        allusions.sort(key=lambda r: -r["n_hits"])
+        total += dump(out / "allusions.json", allusions)
+        print(f"典故 {len(allusions)} 则（表面命中 "
+              f"{sum(r['n_hits'] for r in allusions)} 处，候选待辨）")
+
+    # ── 标签倒排索引：意象/情感/题材 → 目录行号（供交叉检索秒查）──
+    tag_index: dict = {"imagery": {}, "emotion": {}, "theme": {}}
+    for i, p in enumerate(shards_flat):
+        for key, field in (("imagery", "img"), ("emotion", "emo"), ("theme", "thm")):
+            for v in (p.get(field) or []):
+                tag_index[key].setdefault(v, []).append(row_of[p["id"]])
+    for key in tag_index:
+        for v in tag_index[key]:
+            tag_index[key][v].sort()
+    total += dump(out / "tag_index.json", tag_index)
+    print(f"标签倒排：意象 {len(tag_index['imagery'])} · "
+          f"情感 {len(tag_index['emotion'])} · 题材 {len(tag_index['theme'])}")
+
+    # ── 题材：标志词汇 → 命中作品索引（供点词查作品）─────────────
+    theme_hits = {}
+    for t in themes:
+        for w in (t.get("marker_terms") or []):
+            wf = t2s(w)
+            if wf in theme_hits:
+                continue
+            rows_hit = []
+            for i, row in enumerate(catalog):
+                if wf in row[7]:
+                    rows_hit.append(i)
+                if len(rows_hit) >= 300:
+                    break
+            theme_hits[wf] = rows_hit
+    total += dump(out / "theme_terms.json", theme_hits)
+    print(f"题材标志词索引 {len(theme_hits)} 词")
+
     # ── 简繁折叠表（前端检索归一用）──────────────────────────────
     from hermes_poetry.textutil import _t2s_table, _VARIANT_MAP
     fold = {chr(k): v for k, v in _t2s_table().items()}
@@ -399,8 +502,9 @@ def main() -> int:
     total += dump(out / "t2s.json", fold)
     print(f"简繁折叠表 {len(fold)} 字")
 
-    # ── 分层书架：朝代 → 集部（含体裁构成与子目数）─────────────
-    DYN_ORDER = ["先秦", "汉魏", "唐", "五代", "宋", "元", "明", "清", "未知"]
+    # ── 分层书架：朝代（按时序，跨代过渡期附于前朝之后）→ 集部 ──
+    # 「元末明初」「明末清初」这类跨代标签依作者活动年代排在两朝之间，
+    # 并标记 transitional，前端另作样式，避免与主朝代平级造成范围重叠观感。
     shelf: dict = {}
     for row in catalog:
         d, b, g, a, t = row[3], row[4], row[5], row[2], row[1]
@@ -412,15 +516,14 @@ def main() -> int:
         if sub:
             e["subs"].add(sub)
     shelves = []
-    for d in DYN_ORDER + [x for x in shelf if x not in DYN_ORDER]:
-        if d not in shelf:
-            continue
+    for d in sorted(shelf, key=lambda x: (ORDER.get(x, 990), x)):
         books = [{"book": b, "n": v["n"], "n_subs": len(v["subs"]),
                   "genres": sorted(v["genres"].items(), key=lambda x: -x[1])[:4]}
                  for b, v in sorted(shelf[d].items(), key=lambda x: -x[1]["n"])]
-        shelves.append({"era": d, "n": sum(b["n"] for b in books), "books": books})
+        shelves.append({"era": d, "n": sum(b["n"] for b in books),
+                        "transitional": d in TRANS, "books": books})
     total += dump(out / "shelves.json", shelves)
-    print(f"分层书架 {len(shelves)} 朝代 · "
+    print(f"分层书架 {len(shelves)} 朝代（含 {sum(1 for s in shelves if s['transitional'])} 跨代）· "
           f"{sum(len(s['books']) for s in shelves)} 集部")
 
     dyn_count, book_count = {}, {}
