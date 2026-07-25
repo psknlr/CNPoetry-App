@@ -60,11 +60,43 @@ def main() -> int:
 
     total = 0
 
+    # ── 明清补遗（网络汇编层，独立标注证据级别）──────────────────
+    RE_CJK_ONLY = __import__("re").compile(r"[㐀-鿿豈-﫿]")
+    mq_file = hermes / "data" / "raw" / "mingqing" / "mingqing.json"
+    extra_poems = []
+    if mq_file.exists():
+        mq = json.loads(mq_file.read_text(encoding="utf-8"))
+        for i, r in enumerate(mq.get("poems") or []):
+            lines = r.get("paragraphs") or []
+            text = "".join(lines)
+            n = len(RE_CJK_ONLY.findall(text))
+            lens = {len(RE_CJK_ONLY.findall(ln)) for ln in lines}
+            uniform = len(lens) == 1
+            cn = next(iter(lens)) if uniform else 0
+            genre = ("五绝" if uniform and cn == 5 and len(lines) == 4
+                     else "七绝" if uniform and cn == 7 and len(lines) == 4
+                     else "五律" if uniform and cn == 5 and len(lines) == 8
+                     else "七律" if uniform and cn == 7 and len(lines) == 8
+                     else f"{cn}言齐言" if uniform and cn in (4, 5, 6, 7)
+                     else "杂言")
+            extra_poems.append({
+                "poem_id": f"MQ_{i:06d}", "title": r.get("title", ""),
+                "author": r.get("author", ""), "dynasty": r.get("dynasty", ""),
+                "book": "明清补遗", "genre": genre, "lines": lines,
+                "cipai": "", "section": "", "notes": [], "appreciation": "",
+                "imagery": [], "emotions": [], "themes": [],
+                "metrics": {"form_metric": genre},
+                "layer": "网络汇编（待校）"})
+        print(f"明清补遗 {len(extra_poems)} 首（{mq.get('evidence_level', '')}）")
+        total += dump(out / "mingqing_meta.json",
+                      {k: mq.get(k) for k in
+                       ("source_repo", "license", "evidence_level", "note")})
+
     # ── 诗词分片 + 检索目录 ────────────────────────────────────────
     shards = [[] for _ in range(N_SHARDS)]
     catalog = []
     by_id = {}
-    for p in read_jsonl(poetry / "poems" / "poems.jsonl"):
+    for p in list(read_jsonl(poetry / "poems" / "poems.jsonl")) + extra_poems:
         rec = OrderedDict()
         rec["id"] = p["poem_id"]
         rec["t"] = p.get("title", "")
@@ -101,8 +133,17 @@ def main() -> int:
 
     for i, shard in enumerate(shards):
         total += dump(out / "poems" / f"shard_{i:02d}.json", shard)
-    total += dump(out / "catalog.json", catalog)
-    print(f"诗词 {len(catalog)} 首 → {N_SHARDS} 分片 + catalog")
+
+    # 目录拆两层：轻元数据（常驻）+ 全文折叠索引分片（仅全文检索时载入）。
+    # 13 万首的单体目录逾 30 MB，手机上一次性解析会明显卡顿。
+    N_CTEXT = 16
+    total += dump(out / "catalog.json", [r[:7] for r in catalog])
+    ct_shards = [[] for _ in range(N_CTEXT)]
+    for i, r in enumerate(catalog):
+        ct_shards[i % N_CTEXT].append([i, r[7]])
+    for i, sh in enumerate(ct_shards):
+        total += dump(out / "ctext" / f"ct_{i:02d}.json", sh)
+    print(f"诗词 {len(catalog)} 首 → {N_SHARDS} 分片 + 目录 + {N_CTEXT} 全文索引片")
 
     # ── 意象档案 + 全量例证 ────────────────────────────────────────
     profiles = list(read_jsonl(poetry / "rules_imagery" / "imagery_profiles.jsonl"))
@@ -309,6 +350,31 @@ def main() -> int:
         total += dump(out / "prose.json", prose)
         n_fu = sum(1 for r in prose if r["g"] == "赋")
         print(f"文苑（古文观止）{len(prose)} 篇 · 赋 {n_fu} 篇")
+
+    # ── 辞赋：御定历代赋汇（清·陈元龙编，四库本；含卷次页码证据）──
+    fh_file = hermes / "data" / "raw" / "fuhui" / "fuhui.json"
+    if fh_file.exists():
+        fh = json.loads(fh_file.read_text(encoding="utf-8"))
+        fu = []
+        for i, r in enumerate(fh):
+            fu.append({"id": f"FU_{i:04d}", "t": r.get("title", ""),
+                       "a": r.get("author", ""), "d": r.get("dynasty", ""),
+                       "juan": r.get("juan", ""), "page": r.get("page", ""),
+                       "p": r.get("paragraphs") or []})
+        # 按朝代分片懒加载（全量 200 万字，避免一次载入）
+        FU_SHARDS = 8
+        fu_shards = [[] for _ in range(FU_SHARDS)]
+        for r in fu:
+            fu_shards[int(r["id"][3:]) % FU_SHARDS].append(r)
+        for i, sh in enumerate(fu_shards):
+            total += dump(out / "fu" / f"fu_{i}.json", sh)
+        total += dump(out / "fu_index.json", {
+            "n": len(fu), "n_shards": FU_SHARDS,
+            "items": [[r["id"], r["t"], r["a"], r["d"], r["juan"]] for r in fu],
+            "source": "御定历代赋汇（清·陈元龙编，文渊阁四库全书本）",
+            "provider": "Kanripo KR4h0139（按卷繁体，保留四库页码）",
+            "note": "原典 1706 年成书，正文属公有领域；卷次与页码随篇保留，可回四库本核校。"})
+        print(f"辞赋（历代赋汇）{len(fu)} 篇 → {FU_SHARDS} 分片")
 
     # ── 对课：声律启蒙（按平水三十平韵分编）──────────────────────
     slqm_file = extra / "shenglvqimeng.json"

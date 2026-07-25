@@ -73,7 +73,10 @@ async function poemById(id) {
   return shard.find(p => p.id === id) || null;
 }
 
-let _catalogP = null;        // 目录（懒加载，含全文折叠索引）
+/* 目录分两层：轻元数据（常驻）+ 全文折叠索引分片（仅全文检索时载入），
+   13 万首的单体目录逾 30 MB，一次性解析会明显卡顿。 */
+const N_CTEXT = 16;
+let _catalogP = null;
 function catalog() {
   if (!_catalogP) {
     _catalogP = Promise.all([getJSON("catalog.json"), foldMap()]).then(([rows]) => {
@@ -83,6 +86,32 @@ function catalog() {
     });
   }
   return _catalogP;
+}
+
+/* 全文检索：逐片扫描，每片就绪即回调（可边扫边出结果） */
+async function scanFullText(matchFn, onBatch, limit = 3000) {
+  const { rows } = await catalog();
+  const hits = [];
+  for (let s = 0; s < N_CTEXT; s++) {
+    const part = await getJSON("ctext/ct_" + String(s).padStart(2, "0") + ".json");
+    const batch = [];
+    for (const [idx, text] of part) {
+      if (matchFn(text, rows[idx])) {
+        batch.push(rows[idx]);
+        hits.push(rows[idx]);
+        if (hits.length >= limit) break;
+      }
+    }
+    if (batch.length && onBatch) onBatch(batch, hits.length, (s + 1) / N_CTEXT);
+    if (hits.length >= limit) break;
+  }
+  return hits;
+}
+/* 单条全文（用于摘要/撞句核验时定位）——按需取所在分片 */
+async function textOf(rowIndex) {
+  const part = await getJSON("ctext/ct_" + String(rowIndex % N_CTEXT).padStart(2, "0") + ".json");
+  const found = part.find(x => x[0] === rowIndex);
+  return found ? found[1] : "";
 }
 
 /* ── 收藏夹（localStorage） ────────────────────────────────── */
@@ -126,7 +155,7 @@ async function render() {
       t === (["", "poem"].includes(tab) ? "home" : tab) ||
       (t === "home" && path === "/") ||
       (t === "imagery" && tab === "imagery") ||
-      (t === "salon" && ["salon", "cipai", "theme", "feihua", "about", "starmap", "fav", "rhyme", "compose", "prose", "duike", "matrix"].includes(tab)) ||
+      (t === "salon" && ["salon", "cipai", "theme", "feihua", "about", "starmap", "fav", "rhyme", "compose", "prose", "duike", "matrix", "fu"].includes(tab)) ||
       (t === "lib" && ["lib", "search"].includes(tab)) ||
       (t === "poets" && tab === "poet"));
   });
@@ -435,19 +464,33 @@ route(/^\/lib$/, async (_m, query) => {
     if (my !== tok) return;
     const fq = fold(cjkOnly(q));
     if (!fq) { body.innerHTML = `<div class="empty">请以汉字检索</div>`; return; }
-    const hits = [];
+    pushHist(q);
+    let hits;
+    if (mode === "text") {
+      const texts = new Map();
+      hits = await scanFullText((text, row) => {
+        const ok = text.includes(fq);
+        if (ok) texts.set(row[0], text);
+        return ok;
+      }, (_b, n, prog) => {
+        if (my !== tok) return;
+        body.innerHTML = `<div class="loading">已 检 得 ${n} 首 · ${Math.round(prog * 100)}%</div>`;
+      });
+      if (my !== tok) return;
+      body.innerHTML = `${kicker(1, "检得", hits.length + (hits.length >= 3000 ? "+" : "") + " 首")}<div id="sr"></div>`;
+      progressiveList(document.getElementById("sr"), hits,
+        r => poemRowHTML(r, snippetOf(texts.get(r[0]) || "", fq)), 60);
+      return;
+    }
+    hits = [];
     for (const r of rows) {
-      if (mode === "text" ? r[7].includes(fq)
-        : mode === "t" ? fold(r[1]).includes(fq)
-        : fold(r[2]).includes(fq)) hits.push(r);
+      if (mode === "t" ? fold(r[1]).includes(fq) : fold(r[2]).includes(fq)) hits.push(r);
       if (hits.length >= 3000) break;
     }
     if (my !== tok) return;
-    pushHist(q);
     body.innerHTML = `${kicker(1, "检得", hits.length + (hits.length >= 3000 ? "+" : "") + " 首")}
       <div id="sr"></div>`;
-    progressiveList(document.getElementById("sr"),
-      hits, r => poemRowHTML(r, mode === "text" ? snippetOf(r, fq) : ""), 60);
+    progressiveList(document.getElementById("sr"), hits, r => poemRowHTML(r), 60);
   }
 
   modeSeg.querySelectorAll("button").forEach(b => b.onclick = () => {
@@ -467,14 +510,15 @@ route(/^\/lib$/, async (_m, query) => {
   drawShelves();
 });
 
-/* 命中摘要：折叠索引里定位命中，回切原文近旁 20 字 */
-function snippetOf(row, fq) {
-  const i = row[7].indexOf(fq);
+/* 命中摘要：折叠索引里定位命中，回切近旁 20 字 */
+function snippetOf(text, fq) {
+  if (!text) return "";
+  const i = text.indexOf(fq);
   if (i < 0) return "";
-  const from = Math.max(0, i - 8), to = Math.min(row[7].length, i + fq.length + 12);
-  const seg = row[7].slice(from, to);
+  const from = Math.max(0, i - 8), to = Math.min(text.length, i + fq.length + 12);
+  const seg = text.slice(from, to);
   const k = seg.indexOf(fq);
-  return `${from > 0 ? "…" : ""}${esc(seg.slice(0, k))}<span style="color:var(--seal)">${esc(fq)}</span>${esc(seg.slice(k + fq.length))}${to < row[7].length ? "…" : ""}`;
+  return `${from > 0 ? "…" : ""}${esc(seg.slice(0, k))}<span style="color:var(--seal)">${esc(fq)}</span>${esc(seg.slice(k + fq.length))}${to < text.length ? "…" : ""}`;
 }
 
 /* ── 视图：集部（子目筛选 / 体裁 / 作者）─────────────────────── */
@@ -640,16 +684,33 @@ route(/^\/search$/, async () => {
       multi.img.size || multi.theme.size;
 
     const { rows } = await catalog();
-    let cands = rows.filter(r =>
+    const metaOk = r =>
       (!multi.era.size || multi.era.has(r[3])) &&
       (!multi.book.size || multi.book.has(r[4])) &&
-      (!multi.genre.size || multi.genre.has(r[5])) &&
-      (!notQ || !r[7].includes(notQ)));
-    if (q) {
-      cands = cands.filter(r => field === "text" ? r[7].includes(q)
-        : field === "t" ? fold(r[1]).includes(q) : fold(r[2]).includes(q));
+      (!multi.genre.size || multi.genre.has(r[5]));
+    const snippets = new Map();
+    let cands;
+    if ((q && field === "text") || notQ) {
+      /* 需要全文的条件：逐片扫描全文索引 */
+      cands = await scanFullText((text, row) => {
+        if (!metaOk(row)) return false;
+        if (notQ && text.includes(notQ)) return false;
+        if (q && field === "text") {
+          if (!text.includes(q)) return false;
+          snippets.set(row[0], text);
+        }
+        return true;
+      }, (_b, n, prog) => {
+        out.innerHTML = `<div class="loading">已 检 得 ${n} 首 · ${Math.round(prog * 100)}%</div>`;
+      }, 6000);
+      if (q && field !== "text") {
+        cands = cands.filter(r => field === "t" ? fold(r[1]).includes(q) : fold(r[2]).includes(q));
+      }
+    } else {
+      cands = rows.filter(r => metaOk(r) &&
+        (!q || (field === "t" ? fold(r[1]).includes(q) : fold(r[2]).includes(q))));
+      if (cands.length > 6000) cands = cands.slice(0, 6000);
     }
-    if (cands.length > 6000) cands = cands.slice(0, 6000);
 
     let hits = cands;
     if (needPoem) {
@@ -704,7 +765,7 @@ route(/^\/search$/, async () => {
       </div>` : ""}
       <div id="sf-list"></div>`;
     progressiveList(document.getElementById("sf-list"), hits,
-      r => poemRowHTML(r, q && field === "text" ? snippetOf(r, q) : ""), 60);
+      r => poemRowHTML(r, q && field === "text" ? snippetOf(snippets.get(r[0]) || "", q) : ""), 60);
     if (q) pushHist(q);
   };
 });
@@ -777,6 +838,75 @@ route(/^\/prose\/([^/]+)$/, async m => {
       <div class="card about"><p class="credit">《古文观止》${esc(p.juan)} · 原文直录（A 层）。散文不入格律计量层。</p></div>
     </div>`;
   document.getElementById("pr-vert").onclick = e => {
+    document.getElementById("paper").classList.toggle("vertical");
+    e.target.classList.toggle("on");
+    const sc = document.querySelector(".p-scroll");
+    if (document.getElementById("paper").classList.contains("vertical")) sc.scrollLeft = sc.scrollWidth;
+  };
+});
+
+/* ── 视图：辞赋（御定历代赋汇 3772 篇）────────────────────── */
+route(/^\/fu$/, async () => {
+  const idx = await getJSON("fu_index.json");
+  await foldMap();
+  const eras = [...new Set(idx.items.map(x => x[3]).filter(Boolean))];
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("风雅集", "#/salon")}${sealHTML("辞赋")}</div>
+    <div class="masthead"><div><h1>辞赋</h1><div class="sub">历代赋汇 · ${idx.n.toLocaleString()} 篇</div></div></div>
+    <hr class="rule-double">
+    ${searchboxHTML("fu-q", "寻一赋，如：赤壁 / 洛神 / 阿房宫 / 江淹")}
+    <div class="filter-row" id="fu-era">
+      <button class="chip on" data-v="">全部</button>
+      ${eras.map(e => `<button class="chip" data-v="${esc(e)}">${esc(e)}</button>`).join("")}
+    </div>
+    <div id="fu-list"></div>
+    <div class="card about"><p class="credit">${esc(idx.source)} · ${esc(idx.provider)}<br>${esc(idx.note)}</p></div>`;
+  let era = "", q = "";
+  const listEl = document.getElementById("fu-list");
+  const row = it => `<a class="poem-row" href="#/fu/${encodeURIComponent(it[0])}">
+      <span class="pr-t">${esc(it[1])}</span>
+      <span class="pr-a">${esc(it[2])}</span>
+      ${it[3] ? `<span class="pr-d">${esc(it[3])}</span>` : ""}</a>`;
+  const draw = () => {
+    const fq = fold(q);
+    progressiveList(listEl, idx.items.filter(it =>
+      (!era || it[3] === era) &&
+      (!fq || fold(it[1]).includes(fq) || fold(it[2]).includes(fq))), row, 60);
+  };
+  document.querySelectorAll("#fu-era button").forEach(b => b.onclick = () => {
+    era = b.dataset.v;
+    document.querySelectorAll("#fu-era button").forEach(x => x.classList.toggle("on", x === b));
+    draw();
+  });
+  document.getElementById("fu-q").oninput = e => { q = e.target.value.trim(); draw(); };
+  draw();
+});
+
+route(/^\/fu\/(FU_\d+)$/, async m => {
+  const id = m[1];
+  const idx = await getJSON("fu_index.json");
+  const shard = await getJSON("fu/fu_" + (Number(id.slice(3)) % idx.n_shards) + ".json");
+  const p = shard.find(x => x.id === id);
+  if (!p) { $view.innerHTML = `<div class="empty">赋汇未收此篇</div>`; return; }
+  $view.innerHTML = `
+    <div class="reader">
+      <div class="reader-top">${backBtn("辞赋", "#/fu")}
+        <div class="r-tools"><button id="fu-vert">竖排</button></div></div>
+      <div class="poem-paper" id="paper">
+        <div class="p-title">${esc(p.t)}</div>
+        <div class="p-meta">${esc([p.d, p.a].filter(Boolean).join(" · "))}</div>
+        <div class="p-tags">
+          <span class="t">${esc(p.juan)}</span>
+          ${p.page ? `<span class="t">四库 ${esc(p.page)}</span>` : ""}
+          <span class="t">赋</span>
+        </div>
+        <div class="p-scroll"><div class="p-lines prose-body" id="p-lines">${p.p.map(x => `<p>${esc(x)}</p>`).join("")}</div></div>
+        <div class="p-seal">${sealHTML(p.a ? [...cjkOnly(p.a)].slice(0, 3).join("") : "赋")}</div>
+      </div>
+      <div class="card about"><p class="credit">《御定历代赋汇》${esc(p.juan)}${p.page ? " · 四库本页 " + esc(p.page) : ""}
+      · 繁体原文直录（A 层），可据卷次页码回四库本核校。</p></div>
+    </div>`;
+  document.getElementById("fu-vert").onclick = e => {
     document.getElementById("paper").classList.toggle("vertical");
     e.target.classList.toggle("on");
     const sc = document.querySelector(".p-scroll");
@@ -883,7 +1013,8 @@ route(/^\/salon$/, async () => {
       <a class="entry" href="#/starmap"><b>意象星图</b><span>五十意象 · 同篇共现网络</span><span class="e-glyph">星</span></a>
       <a class="entry" href="#/matrix"><b>情象矩阵</b><span>情感 × 意象 · 计量热力</span><span class="e-glyph">矩</span></a>
       <a class="entry" href="#/theme"><b>题材九品</b><span>${stats.themes} 品 · 咏史至闺怨</span><span class="e-glyph">品</span></a>
-      <a class="entry" href="#/prose"><b>文苑</b><span>古文观止 · 辞赋名篇</span><span class="e-glyph">文</span></a>
+      <a class="entry" href="#/fu"><b>辞赋</b><span>历代赋汇 · 三千七百篇</span><span class="e-glyph">赋</span></a>
+      <a class="entry" href="#/prose"><b>文苑</b><span>古文观止 · 二百廿二篇</span><span class="e-glyph">文</span></a>
     </div>
     ${kicker(3, "游艺 · 私藏")}
     <div class="entry-grid">
@@ -1157,14 +1288,94 @@ route(/^\/compose(?:\/(shipu|cipu|yun|check))?$/, async m => {
           ${kicker(1, picked.cipai, need + " 字")}
           ${forms.length > 1 ? `<div class="filter-row" id="ci-form-sel">${forms.map((f, i) =>
             `<button class="chip ${i === formIdx ? "on" : ""}" data-i="${i}">${esc(f.label || "格" + (i + 1))}</button>`).join("")}</div>` : ""}
-          <div class="card"><div class="pu-pattern">${esc((forms[formIdx] || {}).pattern || "")
-            .replace(/[△▲]/g, ch => `<span class="rk">${ch}</span>`)}</div></div>
+          <div class="card"><div class="pu-pattern" id="pu-live">${
+            pu.map((x, i) => x.k === "br" ? "<br>"
+              : x.k === "punc" ? `<span class="pu-punc">${esc(x.s)}</span>`
+              : `<span class="pu-slot ${x.k === "rhyme" ? "rk" : ""}" data-i="${i}">${esc(x.k === "rhyme" ? x.mark : x.s)}</span>`).join("")
+          }</div>
+            <div class="legend" style="margin-top:8px">点谱位可查该位宜用之字（韵位给同韵常用字）。</div>
+          </div>
+          <div id="slot-tip"></div>
           <textarea class="draft-box" id="ci-draft" placeholder="填入词句（依谱换行，标点可有可无）"></textarea>
           <button class="btn seal-btn block" id="ci-go">依谱校验</button>
           <div id="ci-out" style="margin-top:12px"></div>`;
         document.querySelectorAll("#ci-form-sel button").forEach(b => b.onclick = () => {
           formIdx = Number(b.dataset.i); drawForm();
         });
+
+        /* 点谱位 → 提示该位宜用之字（韵位按已押韵部给同韵常用字） */
+        document.getElementById("pu-live").onclick = async ev => {
+          const el = ev.target.closest(".pu-slot");
+          if (!el) return;
+          document.querySelectorAll("#pu-live .pu-slot").forEach(x => x.classList.toggle("sel", x === el));
+          const slot = pu[Number(el.dataset.i)];
+          const ordinal = pu.slice(0, Number(el.dataset.i) + 1)
+            .filter(x => x.k === "pz" || x.k === "rhyme").length;
+          const tip = document.getElementById("slot-tip");
+          tip.innerHTML = `<div class="card"><div class="loading">检 字 中 …</div></div>`;
+          const [gy, rb] = await Promise.all([getJSON("guangyun.json"), rhymebook()]);
+          await foldMap();
+          const want = slot.want;
+          const isRhyme = slot.k === "rhyme";
+          /* 已填词句里同一韵位的用字 → 推定本调韵部 */
+          const filled = [...cjkOnly(document.getElementById("ci-draft").value)];
+          const slots = pu.filter(x => x.k === "pz" || x.k === "rhyme");
+          const rhymeUsed = [];
+          slots.forEach((s, i) => { if (s.k === "rhyme" && filled[i]) rhymeUsed.push(filled[i]); });
+          const psOf = c => new Set(((gy[c] || gy[fold(c)] || [null, []])[1] || [])
+            .map(r => rb.gy2ps[r[0]]).filter(Boolean));
+          let yunSet = null;
+          for (const c of rhymeUsed) {
+            const s = psOf(c);
+            if (!s.size) continue;
+            yunSet = yunSet === null ? s : new Set([...yunSet].filter(x => s.has(x)));
+          }
+          let chars = [], head;
+          if (isRhyme && yunSet && yunSet.size) {
+            head = `第 ${ordinal} 字 · ${slot.mark === "△" ? "平" : "仄"}韵位 · 依已押「${[...yunSet].join("/")}」韵`;
+            for (const ps of yunSet) {
+              const rec = rb.pingshui.find(r => r.yun === ps);
+              if (rec) chars.push(...[...rec.chars].slice(0, 48));
+            }
+          } else if (isRhyme) {
+            head = `第 ${ordinal} 字 · ${slot.mark === "△" ? "平" : "仄"}韵位 · 择一韵部起韵`;
+            const want平 = slot.mark === "△";
+            chars = rb.pingshui.filter(r => want平 ? r.tone === "平" : r.tone !== "平")
+              .slice(0, 12).map(r => r.yun);
+            tip.innerHTML = `<div class="card">
+              <div class="yun-head"><b>${esc(head)}</b></div>
+              <div class="sf-label">可选韵部（点选后即按该韵给字）</div>
+              <div class="filter-row">${chars.map(y =>
+                `<button class="chip" data-y="${esc(y)}">${esc(y)}韵</button>`).join("")}</div>
+              <div id="yun-chars-slot"></div></div>`;
+            tip.querySelectorAll("[data-y]").forEach(b => b.onclick = () => {
+              const rec = rb.pingshui.find(r => r.yun === b.dataset.y);
+              tip.querySelectorAll("[data-y]").forEach(x => x.classList.toggle("on", x === b));
+              document.getElementById("yun-chars-slot").innerHTML =
+                `<div class="yun-chars" style="margin-top:8px">${esc([...(rec ? rec.chars : "")].slice(0, 60).join(""))}</div>`;
+            });
+            return;
+          } else {
+            head = `第 ${ordinal} 字 · 谱作 ${slot.s === "○" ? "平声" : slot.s === "●" ? "仄声" : "可平可仄"}`;
+            if (want === "⊙") {
+              chars = [];
+            } else {
+              /* 按语料常用字给候选：取平水各部字表中合本位平仄者 */
+              const wantPing = want === "○";
+              for (const r of rb.pingshui) {
+                if ((r.tone === "平") === wantPing) chars.push(...[...r.chars].slice(0, 6));
+              }
+            }
+          }
+          const uniq = [...new Set(chars)].slice(0, 90);
+          tip.innerHTML = `<div class="card">
+            <div class="yun-head"><b>${esc(head)}</b>
+              <span>${uniq.length ? uniq.length + " 字备选 · 按语料常用度" : "此位可平可仄，不拘"}</span></div>
+            ${uniq.length ? `<div class="yun-chars" style="margin-top:8px">${uniq.map(c =>
+              `<span>${esc(c)}</span>`).join("")}</div>` : ""}
+            <div class="legend" style="margin-top:8px">字表由《广韵》归部合并为平水韵后，按本馆语料频次排序；仅供择字参考。</div>
+          </div>`;
+        };
         document.getElementById("ci-go").onclick = async () => {
           const out = document.getElementById("ci-out");
           const text = document.getElementById("ci-draft").value;
@@ -1310,15 +1521,80 @@ route(/^\/compose(?:\/(shipu|cipu|yun|check))?$/, async m => {
         return null;
       }).filter(Boolean);
 
-      /* 撞句（语料实有核验） */
-      const { rows } = await catalog();
-      const clashes = [];
-      lines.forEach((l, i) => {
-        if (l.length < 4) return;
-        const fl = fold(l);
-        const hit = rows.find(r => r[7].includes(fl));
-        if (hit) clashes.push({ i, hit });
-      });
+      /* 粘对检测（近体）：联内「对」—— 出句与对句二四六相反；
+         联间「粘」—— 后联出句与前联对句二字（七言并四字）相同。
+         两读/无考不判（诚实边界）。 */
+      const nianDui = [];
+      if (jinti) {
+        const key = charN === 7 ? [1, 3, 5] : [1, 3];
+        const solid = (i, j) => pats[i][j] === "平" || pats[i][j] === "仄";
+        for (let c = 0; c + 1 < n; c += 2) {          // 每联：出句 c、对句 c+1
+          for (const j of key) {
+            if (solid(c, j) && solid(c + 1, j) && pats[c][j] === pats[c + 1][j]) {
+              nianDui.push({ kind: "失对", couplet: c / 2 + 1, line: c + 1, pos: j });
+            }
+          }
+        }
+        for (let c = 2; c < n; c += 2) {              // 联间：本联出句 c ↔ 前联对句 c-1
+          const jj = charN === 7 ? [1, 3] : [1];
+          for (const j of jj) {
+            if (solid(c, j) && solid(c - 1, j) && pats[c][j] !== pats[c - 1][j]) {
+              nianDui.push({ kind: "失粘", couplet: c / 2 + 1, line: c, pos: j });
+            }
+          }
+        }
+      }
+
+      /* 拗救识别：把可解释为通行拗救格式的偏差从「违律」中区分出来。
+         口径（王力《诗词格律》通行说）：
+           · 孤平拗救：B 式「平平仄仄平」首字用仄（犯孤平），第三字改用平相救；
+           · 特拗（四拗三救）：C 式「平平平仄仄」第四字用平、第三字用仄，
+             成「平平仄平仄」，为唐宋习见变格；
+           · 半拗可救可不救：A 式「仄仄平平仄」第四字用仄（五言第三字），
+             对句第三字改平相救。
+         识别到即标注为「拗救」而非「出律」，并如实说明未穷尽变格。 */
+      const aojiu = [];
+      if (jinti && fit) {
+        const t5 = i => pats[i].slice(charN === 7 ? 2 : 0);   // 取五言核心五字
+        const isP = t => t === "平" || t === "两";
+        const isZ = t => t === "仄" || t === "两";
+        for (let i = 0; i < n; i++) {
+          const c = t5(i);
+          if (c.length !== 5) continue;
+          // 孤平拗救：核心作「仄平平仄平」（本应「平平仄仄平」）
+          if (isZ(c[0]) && isP(c[1]) && isP(c[2]) && isZ(c[3]) && isP(c[4])) {
+            aojiu.push({ i, kind: "孤平拗救", note: "首字用仄，第三字改平以救" });
+            continue;
+          }
+          // 特拗：核心作「平平仄平仄」（本应「平平平仄仄」）
+          if (isP(c[0]) && isP(c[1]) && isZ(c[2]) && isP(c[3]) && isZ(c[4])) {
+            aojiu.push({ i, kind: "特拗（四拗三救）", note: "唐宋习见变格，不作出律论" });
+            continue;
+          }
+          // 半拗对句救：本句核心「仄仄平仄仄」，且下句第三字为平
+          if (i + 1 < n && isZ(c[0]) && isZ(c[1]) && isP(c[2]) && isZ(c[3]) && isZ(c[4])) {
+            const nxt = t5(i + 1);
+            if (nxt.length === 5 && isP(nxt[2])) {
+              aojiu.push({ i, kind: "半拗对句救", note: "出句第三字拗，对句第三字改平相救" });
+            }
+          }
+        }
+      }
+      const aoLines = new Set(aojiu.map(a => a.i));
+
+      /* 撞句（语料实有核验）：一趟扫描比对全部句子 */
+      const needles = lines.map((l, i) => ({ i, fl: fold(l) })).filter(x => x.fl.length >= 4);
+      const clashMap = new Map();
+      if (needles.length) {
+        await scanFullText((text, row) => {
+          for (const nd of needles) {
+            if (!clashMap.has(nd.i) && text.includes(nd.fl)) clashMap.set(nd.i, row);
+          }
+          return false;                       // 只做副作用，不收集
+        }, null, 1);
+      }
+      const clashes = [...clashMap.entries()]
+        .sort((a, b) => a[0] - b[0]).map(([i, hit]) => ({ i, hit }));
 
       const violByLine = new Map();
       (fit ? fit.dev : []).forEach(d => {
@@ -1327,30 +1603,38 @@ route(/^\/compose(?:\/(shipu|cipu|yun|check))?$/, async m => {
       });
       const tmpl = fit ? tmplLines(fit.q, charN, n) : null;
 
+      /* 拗救所在句的偏差不计入「出律」计数 */
+      const devHard = (fit ? fit.dev : []).filter(d => !aoLines.has(d.line));
       out.innerHTML = `
         <div class="card">
           <div class="verdict">
-            ${jinti ? `<span class="v ${fit.dev.length === 0 ? "ok" : fit.dev.length <= 2 ? "" : "bad"}">最近谱式 · ${esc(charN === 5 ? "五言" : "七言")}${n === 8 ? "律" : "绝"} ${esc(fit.q)} · 违律 ${fit.dev.length} 处</span>`
+            ${jinti ? `<span class="v ${devHard.length === 0 ? "ok" : devHard.length <= 2 ? "" : "bad"}">最近谱式 · ${esc(charN === 5 ? "五言" : "七言")}${n === 8 ? "律" : "绝"} ${esc(fit.q)} · 出律 ${devHard.length} 处${aojiu.length ? "（另 " + aojiu.length + " 处属拗救）" : ""}</span>`
               : `<span class="v">非四/八句五七言，未作近体比对</span>`}
             ${firstRhymes !== null ? `<span class="v">首句${firstRhymes ? "入韵" : "不入韵"}</span>` : ""}
             ${common && common.size ? `<span class="v ok">韵脚同押平水「${esc([...common].join("/"))}」韵</span>`
               : cilinCommon && cilinCommon.size ? `<span class="v">平水异韵 · 词林正韵同部（${esc([...cilinCommon].join("/"))}）</span>`
               : feetSets.length > 1 ? `<span class="v bad">韵脚归部不一</span>` : ""}
+            ${jinti && !nianDui.length ? `<span class="v ok">粘对无失</span>`
+              : nianDui.map(x => `<span class="v bad">第${hanNum(x.couplet)}联${esc(x.kind)}（第${hanNum(x.line + 1)}句第${x.pos + 1}字）</span>`).join("")}
+            ${aojiu.map(a => `<span class="v">第${hanNum(a.i + 1)}句 ${esc(a.kind)}</span>`).join("")}
             ${tails.map(t => `<span class="v bad">第${hanNum(t.i + 1)}句${esc(t.kind)}</span>`).join("")}
             ${clashes.map(c => `<span class="v bad">第${hanNum(c.i + 1)}句与古人撞句</span>`).join("")}
           </div>
+          ${aojiu.length ? `<div class="legend" style="margin-top:8px">
+            ${aojiu.map(a => `第${hanNum(a.i + 1)}句 ${esc(a.kind)}：${esc(a.note)}`).join("　")}</div>` : ""}
         </div>
         <div class="card">
           ${rawLines.map((raw, i) => {
-            const viol = new Set(violByLine.get(i) || []);
+            const viol = aoLines.has(i) ? new Set() : new Set(violByLine.get(i) || []);
             let ci = -1;
             const txt = [...raw].map(c => {
               if (!CJK1.test(c)) return esc(c);
               ci += 1;
               return `<span class="${viol.has(ci) ? "viol" : ""}">${esc(c)}</span>`;
             }).join("");
+            const ao = aojiu.find(a => a.i === i);
             return `<div class="check-line">
-              <div class="cl-text">${txt}</div>
+              <div class="cl-text">${txt}${ao ? `<span class="ao-tag">${esc(ao.kind)}</span>` : ""}</div>
               <div class="cl-tmpl">${pats[i].map(symOf).join("")}${tmpl ? `　谱 ${[...tmpl[i]].map(c => c === "平" ? "○" : "●").join("")}` : ""}</div>
             </div>`;
           }).join("")}
@@ -1361,8 +1645,9 @@ route(/^\/compose(?:\/(shipu|cipu|yun|check))?$/, async m => {
             <div class="quote">第${hanNum(c.i + 1)}句见于《${esc(r[1] || "无题")}》</div>
             <div class="src">${esc(r[3])} · ${esc(r[2])} → 回源对照</div></a>`;
         }).join("")}</div>` : ""}
-        <div class="card about"><p class="credit">依《广韵》逐字判定（两读/无考按通配），严格位为二四六与句脚；
-        拗救与变格未判，违律仅作初筛提示。韵部按平水韵（广韵合并推导），词林正韵为填词口径。</p></div>`;
+        <div class="card about"><p class="credit">依《广韵》逐字判定（两读/无考按通配），严格位为二四六与句脚。
+        粘对按联内相反、联间相同之通行口径判；拗救只识孤平救、特拗（四拗三救）与半拗对句救三式，
+        其余变格未穷尽，出律仅作初筛提示。韵部按平水韵（广韵合并推导），词林正韵为填词口径。</p></div>`;
       };
     }
     drawJintiPane();
@@ -1833,8 +2118,7 @@ route(/^\/feihua$/, async () => {
     document.getElementById("fh-char").textContent = ch;
     log.innerHTML = "";
     say("app", `令字「${ch}」。凡出句须为语料实有之古人诗句，且含令字。墨一先行 ——`);
-    const { rows } = await catalog();
-    fh.candidates = rows.filter(r => r[7].includes(fh.char));
+    fh.candidates = await scanFullText(text => text.includes(fh.char), null, 1200);
     // 洗牌
     for (let i = fh.candidates.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -1859,12 +2143,12 @@ route(/^\/feihua$/, async () => {
     inp.value = "";
     if (!folded.includes(fh.char)) { say("app", `句中不见令字「${fh.char}」，此句不算，请再出。`); return; }
     if (folded.length < 4) { say("app", "句子过短（至少四字），请再出。"); return; }
-    const { rows } = await catalog();
-    const hit = rows.find(r => r[7].includes(folded) && !fh.used.has(r[0]));
+    const stats = await getJSON("stats.json");
+    const found = await scanFullText(text => text.includes(folded), null, 8);
+    const hit = found.find(r => !fh.used.has(r[0]));
     if (!hit) {
-      const dup = rows.find(r => r[7].includes(folded));
-      say("app", dup ? "此句本局已用过，不可重令，请另出一句。"
-        : "遍检两万六千余篇，未见此句 —— 或非语料所收，或字句有出入。请再出。");
+      say("app", found.length ? "此句本局已用过，不可重令，请另出一句。"
+        : `遍检 ${stats.poems.toLocaleString()} 篇，未见此句 —— 或非语料所收，或字句有出入。请再出。`);
       return;
     }
     fh.used.add(hit[0]);
@@ -2055,16 +2339,33 @@ route(/^\/poem\/([^/]+)$/, async (m, query) => {
 
 /* ── 视图：关于 ────────────────────────────────────────────── */
 route(/^\/about$/, async () => {
-  const stats = await getJSON("stats.json");
+  const [stats, mq] = await Promise.all([
+    getJSON("stats.json"),
+    getJSON("mingqing_meta.json").catch(() => null),
+  ]);
   $view.innerHTML = `
     <div class="reader-top">${backBtn("风雅集", "#/salon")}${sealHTML("墨一", true)}</div>
     <div class="masthead"><div><h1>墨一</h1><div class="sub">一墨藏万象</div></div></div>
     <hr class="rule-double">
     <div class="card about">
-      <p>墨一是一座随身的古典诗词档案馆：${stats.poems.toLocaleString()} 首作品、${stats.imagery} 个意象档案、${stats.authors} 位诗人、${stats.cipai} 个词牌，全部数据离线内置。</p>
-      <p>馆藏规则由 CNPoetry-Hermes 自主规则挖掘流水线生成，恪守「无原文，不成论断；无篇目，不成证据」：每一条意象—情感联系、每一处例证，均逐字回源到具体诗句，点击即达原诗。</p>
+      <p>墨一是一座随身的古典诗词档案馆：${stats.poems.toLocaleString()} 首诗词、3,772 篇辞赋、222 篇古文、${stats.imagery} 个意象档案、${stats.authors} 位诗人档案、${stats.cipai} 个词牌，全部数据离线内置。</p>
+      <p>核心规则由 CNPoetry-Hermes 自主规则挖掘流水线生成，恪守「无原文，不成论断；无篇目，不成证据」：每一条意象—情感联系、每一处例证，均逐字回源到具体诗句，点击即达原诗。</p>
       <p>证据分级 —— A 原文直录 / B 确定性计量 / C 集内旁证 / D 外部分析 / E 模型解释。本 App 只呈现 A、B、C 三层。</p>
-      <p class="credit">语料：chinese-poetry（开源社区整理）· 简繁折叠：OpenCC 字表 · 字体：霞鹜文楷（OFL）· 研发：医哲未来人工智能研究院（IMPF-AI）· 遵循 MIT 许可</p>
+    </div>
+    ${kicker(1, "语料分层", "来源与证据级别")}
+    <div class="card about">
+      <p><b>核心库</b>（26,720 首）—— chinese-poetry 开源整理本：诗经、楚辞、全唐诗、全宋诗词、元曲、花间集、纳兰词等。参与意象/情感/词牌等全部规则挖掘。</p>
+      <p><b>明清补遗</b>（104,000 首）—— ${mq ? esc(mq.source_repo) : "Werneror/Poetry"}。
+      <span style="color:var(--seal)">${mq ? esc(mq.evidence_level) : "网络汇编"}</span>：无底本、卷次与页码，
+      <b>非《全明诗》《全清诗》权威底本</b>。按作者分层抽样（覆盖 13,659 位作者），仅供阅读、检索与格律计量，
+      不参与意象与情感规则挖掘 —— 那些结论要求逐字回源到可信底本。</p>
+      <p><b>辞赋</b>（3,772 篇）—— 《御定历代赋汇》清·陈元龙编，文渊阁四库全书本（Kanripo KR4h0139）。
+      原典 1706 年成书，正文属公有领域；每篇随带卷次与四库页码，可回底本核校。</p>
+      <p><b>文苑</b>（222 篇）—— 《古文观止》，含四篇辞赋名篇与明文。<b>对课</b> —— 《声律启蒙》清·车万育。</p>
+      <p><b>音韵训诂</b> —— 《广韵》字音（韵典网整理本，21,940 键）、《说文解字》（11,179 键）、
+      龙榆生《唐宋词格律》153 调；平水韵 106 部由广韵规范合并推导，词林正韵 19 部为其再合并。</p>
+      <p class="credit">简繁折叠：OpenCC 字表 · 字体：霞鹜文楷（SIL OFL 1.1）· 研发：医哲未来人工智能研究院（IMPF-AI）
+      · 本 App 代码遵循 MIT 许可；古代正文属公有领域，现代整理与注释之权利归各自作者所有。</p>
     </div>`;
 });
 

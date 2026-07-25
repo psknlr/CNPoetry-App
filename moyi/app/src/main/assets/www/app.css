@@ -431,6 +431,20 @@ button {
 .pu-cell.rhyme i { color: var(--dai); }
 .pu-punc { color: var(--ink-3); margin: 0 1px; }
 
+/* 拗救标记 */
+.ao-tag {
+  display: inline-block; margin-left: 8px; padding: 0 8px;
+  font-size: .66rem; letter-spacing: .08em; color: var(--dai);
+  border: 1px solid color-mix(in srgb, var(--dai) 45%, transparent);
+  border-radius: 999px; vertical-align: middle;
+}
+
+/* 谱位可点 */
+.pu-slot { cursor: pointer; border-radius: 4px; padding: 0 1px; }
+.pu-slot.sel { background: var(--seal); color: var(--seal-ink); }
+.pu-pattern .pu-slot.rk { color: var(--dai); font-weight: 700; }
+.pu-pattern .pu-slot.rk.sel { color: var(--seal-ink); }
+
 /* 情感 × 意象矩阵 */
 .mx-table { border-collapse: collapse; font-size: .78rem; }
 .mx-table th { font-weight: 400; color: var(--ink-2); padding: 4px 3px; white-space: nowrap; }
