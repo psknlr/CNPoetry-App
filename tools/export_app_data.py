@@ -702,6 +702,25 @@ def main() -> int:
              for k in mine if mine[k] >= 3),
             key=lambda x: -x[1])
         f["yun_pref"] = [[k, round(v, 2)] for k, v in pref[:5]]
+    # 雷达参照轮廓：同代同体之六维均值（供个体与侪辈相形）
+    grp_radar: dict = {}
+    for f in fingerprints:
+        key = f["grp"]
+        e = grp_radar.setdefault(key, {"n": 0, "avg_lines": 0, "r_density": 0,
+                                       "r_variety": 0, "r_jinti": 0,
+                                       "r_nature": 0, "r_human": 0})
+        e["n"] += 1
+        for k in ("avg_lines", "r_density", "r_variety", "r_jinti", "r_nature", "r_human"):
+            e[k] += f.get(k, 0) or 0
+    for key, e in grp_radar.items():
+        n = max(1, e["n"])
+        for k in ("avg_lines", "r_density", "r_variety", "r_jinti", "r_nature", "r_human"):
+            e[k] = round(e[k] / n, 3)
+    total += dump(out / "radar_ref.json", {
+        "groups": grp_radar,
+        "note": "参照轮廓为同代同体诸家六维之均值；样本少于三家者其均值不稳，前端不绘。"})
+    print(f"雷达参照 {len(grp_radar)} 组")
+
     fingerprints.sort(key=lambda r: -r["n"])
     total += dump(out / "fingerprints.json", fingerprints)
     judged = sum(1 for f in fingerprints if f.get("dev") is not None)
@@ -747,6 +766,108 @@ def main() -> int:
             "rates": {e: round(rates[e] * 1000, 2) for e in eras_present},   # ‰
             "peak": eras_present[vals.index(max(vals))],
             "trend": round(late / early, 3)})
+    # 「语料所见最早」：按朝代时序取最早一代，列该代用此配之作者
+    # 领域边界（必须随数据一同呈现）：语料为抽样非全集，年代仅及朝代粒度，
+    # 同代之内无从定先后 —— 故此项只能说「本馆最早见于何代何家」，
+    # 断不可据以论首创之权属。
+    pair_first: dict = {}
+    for p in shards_flat:
+        d = p["d"]
+        if d not in era_total:
+            continue
+        ims = sorted(set((p.get("img") or []) + (p.get("wimg") or [])) & top_set)
+        for i in range(len(ims)):
+            for j in range(i + 1, len(ims)):
+                k = ims[i] + "|" + ims[j]
+                rec = pair_first.get(k)
+                o = ORDER.get(d, 990)
+                if rec is None or o < rec["o"]:
+                    pair_first[k] = {"o": o, "era": d, "who": {}, "eg": []}
+                if pair_first[k]["o"] == o:
+                    a = p["a"]
+                    if a and a not in ("佚名", "无名氏"):
+                        pair_first[k]["who"][a] = pair_first[k]["who"].get(a, 0) + 1
+                    if len(pair_first[k]["eg"]) < 6:
+                        pair_first[k]["eg"].append([p["id"], p["t"], p["a"], p["d"]])
+    for r in pairs_out:
+        fr = pair_first.get(r["pair"])
+        if fr:
+            r["first_era"] = fr["era"]
+            r["first_who"] = sorted(fr["who"].items(), key=lambda x: -x[1])[:5]
+            r["first_eg"] = fr["eg"][:4]
+
+    # 用象之奇：诗人的意象搭配与同代同体侪辈相较之独特度。
+    #
+    # 何以不作「首创榜」：语料所见最早者，几乎尽落唐代 —— 唐以前存诗甚少，
+    # 而唐代高产者名下自然「最早见」最多。那样的榜单只是「作品多」的同义反复，
+    # 更不能说「云|山」这等亘古常配是某家首创。故改量「用象之奇」：
+    # 其所用搭配在同代同体侪辈中的罕见程度，不依年代先后，避开抽样之陷。
+    grp_pair: dict = {}          # (朝代,体裁) → {搭配: 用此配之家数}
+    grp_authors: dict = {}
+    author_pairs: dict = {}
+    fp_meta = {f["author"]: f for f in fingerprints}
+    for p in shards_flat:
+        a = p["a"]
+        f = fp_meta.get(a)
+        if not f:
+            continue
+        key = f["grp"]
+        ims = sorted(set((p.get("img") or []) + (p.get("wimg") or [])) & top_set)
+        s = author_pairs.setdefault(a, {})
+        for i in range(len(ims)):
+            for j in range(i + 1, len(ims)):
+                k = ims[i] + "|" + ims[j]
+                s[k] = s.get(k, 0) + 1
+    # 只取「惯用」之配（用过两次以上）：偶一为之的长尾罕配若尽数计入，
+    # 用配愈多者其均值愈高，所量者遂成「作品多寡」而非「用象之奇」。
+    author_pairs = {a: {k for k, c in s.items() if c >= 2}
+                    for a, s in author_pairs.items()}
+    for a, s in author_pairs.items():
+        key = fp_meta[a]["grp"]
+        grp_authors.setdefault(key, 0)
+        grp_authors[key] += 1
+        d = grp_pair.setdefault(key, {})
+        for k in s:
+            d[k] = d.get(k, 0) + 1
+    rarity = []
+    for a, s in author_pairs.items():
+        key = fp_meta[a]["grp"]
+        peers = grp_authors.get(key, 0)
+        if peers < 5 or len(s) < 15:      # 侪辈太少或用配太少者不判
+            continue
+        d = grp_pair[key]
+        # 每配之罕见度＝1 − 同组用此配之家数占比；取其均值为「用象之奇」
+        scores = [(k, 1 - (d.get(k, 1) - 1) / max(1, peers - 1)) for k in s]
+        odd = sum(v for _, v in scores) / len(scores)
+        scores.sort(key=lambda x: -x[1])
+        rarity.append({
+            "author": a, "grp": key, "peers": peers, "n_pairs": len(s),
+            "odd": round(odd, 4),
+            "rare": [[k, round(v, 3), grp_pair[key].get(k, 0)] for k, v in scores[:10]]})
+    # 组内分位：组中家数不同则罕见度基线不同（明诗七百馀家，任一配之独用率
+    # 天然高于唐诗七十馀家），故绝对值不可跨组径比，须化为组内位次。
+    by_grp: dict = {}
+    for r in rarity:
+        by_grp.setdefault(r["grp"], []).append(r)
+    for key, lst in by_grp.items():
+        lst.sort(key=lambda r: r["odd"])
+        for i, r in enumerate(lst):
+            r["pct"] = round(i / max(1, len(lst) - 1), 3)
+            r["rank"] = len(lst) - i
+            r["grp_n"] = len(lst)
+    rarity.sort(key=lambda r: (-r["pct"], -r["n_pairs"]))
+    total += dump(out / "pair_rarity.json", {
+        "authors": rarity[:400],
+        "note": "「用象之奇」＝其惯用之意象搭配在同代同体侪辈中的平均罕见度"
+                "（1 为举世独用，0 为人人皆用），只计用过两次以上者 —— 偶一为之的"
+                "长尾罕配若尽数计入，所量者遂成作品多寡。组中家数不同则基线不同，"
+                "故以组内分位为准，绝对值仅作参考。侪辈少于五家或惯用配少于十五者不判。"})
+    print(f"用象之奇：{len(rarity)} 家得判 · {len(by_grp)} 组")
+
+    total += dump(out / "pair_first.json", {
+        "note": "「语料所见最早」附于各搭配详情，仅作线索：本馆语料为抽样而非全集，"
+                "年代仅及朝代粒度，同代之内无从定先后，断不可据以论首创之权属。"})
+
     pairs_out.sort(key=lambda r: -r["n"])
     total += dump(out / "pair_flow.json", {
         "eras": eras_present,

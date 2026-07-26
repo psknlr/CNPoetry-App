@@ -280,6 +280,46 @@ route(/^\/$/, async () => {
     </div>`;
 });
 
+/* 某意象的搭配流变：列其常配之象、峰在何代、渐兴渐微 */
+async function renderPairFlowFor(name, slotId) {
+  const slot = document.getElementById(slotId);
+  if (!slot) return;
+  let d;
+  try { d = await getJSON("pair_flow.json"); }
+  catch { slot.innerHTML = ""; return; }
+  const mine = d.pairs.filter(p => p.pair.split("|").includes(name));
+  if (!mine.length) {
+    slot.innerHTML = `<div class="card about"><p class="credit">此象之搭配未达常见之数（本表只收共现 120 篇以上者）。</p></div>`;
+    return;
+  }
+  const spark = p => {
+    const vs = d.eras.map(e => p.rates[e] || 0);
+    const mx = Math.max(...vs, 0.01);
+    return `<span class="spark">${vs.map((v, i) =>
+      `<i style="height:${Math.max(6, v / mx * 100)}%" title="${esc(d.eras[i])} ${v}‰"></i>`).join("")}</span>`;
+  };
+  const row = p => {
+    const other = p.pair.split("|").find(x => x !== name) || name;
+    return `<a class="pair-row" href="#/pairflow?pair=${encodeURIComponent(p.pair)}">
+      <span class="pr-pair">${esc(other)}</span>${spark(p)}
+      <span class="pr-trend ${p.trend >= 1.5 ? "up" : p.trend <= 0.67 ? "down" : ""}">${
+        p.trend >= 1.5 ? "渐兴" : p.trend <= 0.67 ? "渐微" : "平稳"}</span>
+      <span class="pr-peak">峰 ${esc(p.peak)}</span></a>`;
+  };
+  const byN = [...mine].sort((a, b) => b.n - a.n).slice(0, 10);
+  const rise = [...mine].filter(p => p.trend >= 1.5).sort((a, b) => b.trend - a.trend).slice(0, 5);
+  const fall = [...mine].filter(p => p.trend <= 0.67).sort((a, b) => a.trend - b.trend).slice(0, 5);
+  slot.innerHTML = `
+    <div class="card" style="padding:6px 14px">${byN.map(row).join("")}</div>
+    ${rise.length ? `<div class="sf-label">此象渐兴之配</div>
+      <div class="card" style="padding:6px 14px">${rise.map(row).join("")}</div>` : ""}
+    ${fall.length ? `<div class="sf-label">此象渐微之配</div>
+      <div class="card" style="padding:6px 14px">${fall.map(row).join("")}</div>` : ""}
+    <div class="card about"><p class="credit">柱形自左而右为 ${d.eras.join("、")}，
+    高低为共现率（同篇之数 ÷ 该朝作品数），故各代篇数悬殊不干扰判读。
+    <a href="#/pairflow" style="color:var(--seal)">共现流变全览 →</a></p></div>`;
+}
+
 /* ── 视图：意象（档案 50 + 广谱 203，全库标注） ─────────────── */
 route(/^\/imagery$/, async () => {
   const [profiles, wide] = await Promise.all([
@@ -419,8 +459,11 @@ route(/^\/imagery\/([^/]+)(?:\/(evi))?$/, async (m) => {
           <div class="db"><b>${n}</b><i style="height:${Math.max(4, Math.round(n / maxDyn * 100))}%"></i><span>${esc(d)}</span></div>`).join("")}
         </div>
       </div>
+      ${kicker(4, "与谁搭配 · 何时兴替", "共现流变")}
+      <div id="im-pairs"><div class="loading">推 求 中 …</div></div>
       <button class="btn primary block" onclick="location.replace('#/imagery/${encodeURIComponent(name)}/evi')">
         展开全部 ${exam.n_listed} 条例证长卷</button>`;
+    renderPairFlowFor(name, "im-pairs");
   } else {
     /* —— 例证长卷：全部例证可浏览、可过滤、逐条回源 —— */
     body.innerHTML = `
@@ -963,9 +1006,15 @@ const fpBars = (items, max, hrefFn) => items.map(([k, v]) => `
     <i style="width:${Math.round(v / max * 100)}%"></i><b>${v}</b></div>`).join("");
 
 route(/^\/fingerprint\/([^/]+)$/, async m => {
-  const fps = await getJSON("fingerprints.json");
+  const [fps, ref, rar] = await Promise.all([
+    getJSON("fingerprints.json"),
+    getJSON("radar_ref.json").catch(() => null),
+    getJSON("pair_rarity.json").catch(() => null),
+  ]);
   const f = fps.find(x => x.author === m[1]);
   if (!f) { $view.innerHTML = `<div class="empty">此家存诗未足二十首，暂未立指纹</div>`; return; }
+  const refRow = ref && ref.groups && ref.groups[f.grp];
+  const rare = rar && rar.authors.find(x => x.author === f.author);
   const maxI = Math.max(...f.img.map(x => x[1]), 1);
   const maxG = Math.max(...f.genre.map(x => x[1]), 1);
   const maxY = Math.max(...f.yun.map(x => x[1]), 1);
@@ -979,9 +1028,17 @@ route(/^\/fingerprint\/([^/]+)$/, async m => {
       <button class="chip fp-pick2">择入对读</button>
     </div>
     <div class="card" style="text-align:center">
-      ${radarSVG([{ f, color: "var(--seal)" }], radarPercentiles(fps))}
+      ${radarSVG([
+        ...(refRow && refRow.n >= 3 ? [{ f: refRow, color: "var(--ink-3)", dashed: true }] : []),
+        { f, color: "var(--seal)" },
+      ], radarPercentiles(fps))}
+      ${refRow && refRow.n >= 3 ? `<div class="radar-legend">
+        <span><i style="background:var(--seal)"></i>${esc(f.author)}</span>
+        <span><i style="background:var(--ink-3)"></i>${esc(f.grp)} ${refRow.n} 家均值</span>
+      </div>` : ""}
       <div class="legend" style="text-align:left">六维按全体 ${fps.length} 家分位归一：
-      篇幅／象密（每首意象数）／象广（用象种数）／近体（律绝占比）／自然·人事（二类意象占比）。</div>
+      篇幅／象密（每首意象数）／象广（用象种数）／近体（律绝占比）／自然·人事（二类意象占比）。
+      ${refRow && refRow.n >= 3 ? "灰虚线为同代同体侪辈之均值轮廓，以相形见其偏正。" : ""}</div>
     </div>
     ${kicker(1, "惯用意象", "全库标注计量")}
     <div class="card">${fpBars(f.img, maxI, k => "#/cross?img=" + encodeURIComponent(k))}</div>
@@ -1006,6 +1063,21 @@ route(/^\/fingerprint\/([^/]+)$/, async m => {
         <div class="legend" style="margin-top:8px">「相对偏爱」为此家用某韵之比率与同代同体平均之比（已作加性平滑）。
         冷僻韵在侪辈中基数近零时，比率虽巨而只示方向、不示精度，故此处分档而不列数字。
         分组按「朝代 × 体裁大类」——词多仄韵、诗多平韵，若混作一谈，所量者是体裁之别而非个人风格。</div>
+      </div>` : ""}
+    ${rare ? `
+      ${kicker(5, "用象之奇", "较同代同体")}
+      <div class="card">
+        <div class="dev-gauge">
+          <div class="dev-track"><i style="left:${Math.min(97, rare.pct * 100).toFixed(1)}%"></i></div>
+          <div class="dev-scale"><span>共用</span><span>独用</span></div>
+        </div>
+        <div class="cmp-row"><b>组内位次</b><span>第 ${rare.rank} / ${rare.grp_n} 家（${esc(rare.grp)}）· 分位 ${(rare.pct * 100).toFixed(0)}%</span></div>
+        <div class="cmp-row"><b>惯用之配</b><span>${rare.n_pairs} 对（用过两次以上者）</span></div>
+        <div class="cmp-row"><b>侪辈罕用</b><span>${rare.rare.slice(0, 6).map(([k, , n]) =>
+          `<a class="chip" href="#/pairflow?pair=${encodeURIComponent(k)}">${esc(k.replace("|", "·"))}${n <= 1 ? " 独" : ""}</a>`).join("")}</span></div>
+        <div class="legend" style="margin-top:8px">此量为其惯用搭配在侪辈中的平均罕见度。
+        <b>不作「首创」之论</b> —— 语料为抽样非全集，年代仅及朝代粒度，同代之内无从定先后；
+        此处只言「较侪辈罕用」，不言谁人首倡。</div>
       </div>` : ""}
     <div class="card about"><p class="credit">意象取全库表面标注，体裁与韵部取自计量层；
     统计仅及本馆所收之作，非其全集实况。${f.dev === null ? "此家韵脚样本未足二十处，或同组不足三家，故不判偏离度 —— 样本小则分布不稳，强判即成噪声。" : ""}</p></div>`;
@@ -1060,8 +1132,9 @@ function radarSVG(series, pct, size = 260) {
   const shapes = series.map(s => {
     const pts = RADAR_DIMS.map((d, i) => pt(i, Math.max(0.04, pct(d.k, s.f[d.k] ?? 0))))
       .map(v => v.map(x => x.toFixed(1)).join(",")).join(" ");
-    return `<polygon points="${pts}" fill="${s.color}" fill-opacity="0.16"
-      stroke="${s.color}" stroke-width="1.8" stroke-linejoin="round"/>`;
+    return `<polygon points="${pts}" fill="${s.color}" fill-opacity="${s.dashed ? 0.05 : 0.16}"
+      stroke="${s.color}" stroke-width="${s.dashed ? 1.4 : 1.8}"
+      ${s.dashed ? 'stroke-dasharray="4 3"' : ""} stroke-linejoin="round"/>`;
   }).join("");
   return `<svg viewBox="0 0 ${size} ${size + 14}" class="radar">
     ${rings}${spokes}${shapes}${labels}</svg>`;
@@ -1773,11 +1846,16 @@ route(/^\/cross$/, async (_m, query) => {
       ${want.thm ? `<a class="chip" href="#/theme/${encodeURIComponent(want.thm)}">题材 · ${esc(want.thm)} →</a>` : ""}
       <a class="chip" href="#/matrix">情象矩阵 →</a>
     </div>` : ""}
+    ${want.img && !want.emo && !want.thm ? `
+      <details class="fold card" style="padding:4px 18px"><summary>与谁搭配 · 何时兴替</summary>
+        <div class="fold-body" style="white-space:normal"><div id="cross-pairs"></div></div>
+      </details>` : ""}
     <div id="cross-list"></div>`
     : `<div class="empty">此交叉无作品<br><small style="letter-spacing:.1em">意象与情感的标注仅及核心库；明清补遗未参与规则挖掘</small></div>`;
   if (hits.length) {
     progressiveList(document.getElementById("cross-list"), hits, r => poemRowHTML(r), 60);
   }
+  if (document.getElementById("cross-pairs")) renderPairFlowFor(want.img, "cross-pairs");
 });
 
 /* ── 创作实验室：诗谱 / 词谱（龙谱）/ 韵表 / 校验 ──────────── */
