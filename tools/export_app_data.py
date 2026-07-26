@@ -635,9 +635,62 @@ def main() -> int:
             "genre": e["g"].most_common(6),
             "yun": e["yun"].most_common(8),
             "avg_lines": round(e["len"] / e["n"], 1)})
+    # 用韵偏离度：与「同代同体」诗人的韵部分布之距离，余弦距离度量
+    # （0 从众 ~ 1 独异）。两处领域陷阱须避开：
+    #   1. 词多用仄韵（入/上/去），诗多用平韵，若与混合基准比，词人必然「偏离」，
+    #      量的是体裁之别而非个人风格 —— 故基准按「朝代 × 体裁大类」分组；
+    #   2. 某组只此一家时，自己与自己比恒为 0，是伪「从众」—— 故要求基准
+    #      至少三家，且本人韵脚样本 ≥20，否则不判。
+    def _major(f):
+        g = (f["genre"] or [["", 0]])[0][0]
+        return "词" if ("词" in g or f["books"] and any("词" in b for b in f["books"])) \
+            else "曲" if "曲" in g else "诗"
+    group_yun: dict = {}
+    group_n: dict = {}
+    for f in fingerprints:
+        key = (f["dynasty"], _major(f))
+        f["_grp"] = key
+        if sum(c for _, c in f["yun"]) < 5:
+            continue
+        group_n[key] = group_n.get(key, 0) + 1
+        for y, c in f["yun"]:
+            group_yun.setdefault(key, {})
+            group_yun[key][y] = group_yun[key].get(y, 0) + c
+    import math as _math
+    for f in fingerprints:
+        key = f.pop("_grp")
+        base = group_yun.get(key) or {}
+        mine = dict(f["yun"])
+        n_feet = sum(mine.values())
+        f["grp"] = f"{key[0]}·{key[1]}"
+        if n_feet < 20 or not base or group_n.get(key, 0) < 3:
+            f["dev"] = None
+            continue
+        keys = set(base) | set(mine)
+        va = [mine.get(k, 0) for k in keys]
+        vb = [base.get(k, 0) for k in keys]
+        na = _math.sqrt(sum(x * x for x in va)) or 1
+        nb = _math.sqrt(sum(x * x for x in vb)) or 1
+        cos = sum(x * y for x, y in zip(va, vb)) / (na * nb)
+        f["dev"] = max(0.0, round(1 - cos, 4))     # 夹去浮点负零
+        f["grp_n"] = group_n.get(key, 0)
+        f["n_feet"] = n_feet
+        # 相对同代之偏爱：占比之比，加性平滑以免小样本除以极小基数而爆表
+        # （如某家用冷僻韵三五处、同代几近于零，未平滑可得数百倍之伪值）
+        tb = sum(base.values()) or 1
+        ta = n_feet
+        K = len(set(base) | set(mine)) or 1
+        alpha = 0.5
+        pref = sorted(
+            ((k, ((mine.get(k, 0) + alpha) / (ta + alpha * K))
+                 / ((base.get(k, 0) + alpha) / (tb + alpha * K)))
+             for k in mine if mine[k] >= 3),
+            key=lambda x: -x[1])
+        f["yun_pref"] = [[k, round(v, 2)] for k, v in pref[:5]]
     fingerprints.sort(key=lambda r: -r["n"])
     total += dump(out / "fingerprints.json", fingerprints)
-    print(f"诗人指纹 {len(fingerprints)} 位（≥20 首）")
+    judged = sum(1 for f in fingerprints if f.get("dev") is not None)
+    print(f"诗人指纹 {len(fingerprints)} 位（≥20 首）· 用韵偏离度得判 {judged} 位")
 
     # ── 韵部时代流变：朝代 × 平水韵部（按韵脚计量）────────────────
     flow: dict = {}

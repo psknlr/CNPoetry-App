@@ -941,7 +941,8 @@ route(/^\/fingerprint$/, async () => {
     return `<div class="person-row">
       <a class="avatar" href="#/fingerprint/${encodeURIComponent(f.author)}">${esc([...f.author][0])}</a>
       <a class="who" href="#/fingerprint/${encodeURIComponent(f.author)}"><b>${esc(f.author)}</b>
-        <span>${esc(f.dynasty)} · 常咏 ${(f.img || []).slice(0, 4).map(x => x[0]).join(" ")}</span></a>
+        <span>${esc(f.dynasty)} · 常咏 ${(f.img || []).slice(0, 4).map(x => x[0]).join(" ")}${
+          f.dev != null ? ` · 韵偏 ${f.dev.toFixed(2)}` : ""}</span></a>
       <button class="chip ${on ? "on" : ""} fp-pick" data-n="${esc(f.author)}">${on ? "已择" : "择"}</button>
       <span class="cnt">${f.n}</span></div>`;
   };
@@ -983,8 +984,26 @@ route(/^\/fingerprint\/([^/]+)$/, async m => {
     <div class="card">${fpBars(f.genre, maxG)}</div>
     ${kicker(3, "用韵倾向", "韵脚归平水韵部")}
     <div class="card">${f.yun.length ? fpBars(f.yun, maxY) : `<div class="empty">此家作品未标韵脚</div>`}</div>
+    ${f.dev !== null && f.dev !== undefined ? `
+      ${kicker(4, "用韵之偏", "较同代同体")}
+      <div class="card">
+        <div class="dev-gauge">
+          <div class="dev-track"><i style="left:${Math.min(97, f.dev * 100).toFixed(1)}%"></i></div>
+          <div class="dev-scale"><span>从众</span><span>独异</span></div>
+        </div>
+        <div class="cmp-row"><b>偏离度</b><span>${f.dev.toFixed(3)}　较「${esc(f.grp)}」${f.grp_n} 家之平均用韵（余弦距离，0 全同 ~ 1 全异）</span></div>
+        ${(f.yun_pref || []).length ? `<div class="cmp-row"><b>相对偏爱</b><span>${
+          f.yun_pref.map(([k, v]) => {
+            const tier = v >= 10 ? "远多于侪辈" : v >= 3 ? "多于侪辈" : v >= 1.5 ? "略多" : "相当";
+            return `<span class="chip" title="平滑后比率 ${v}×">${esc(k)}韵 · ${tier}</span>`;
+          }).join("")}</span></div>` : ""}
+        <div class="cmp-row"><b>韵脚样本</b><span>${f.n_feet} 处</span></div>
+        <div class="legend" style="margin-top:8px">「相对偏爱」为此家用某韵之比率与同代同体平均之比（已作加性平滑）。
+        冷僻韵在侪辈中基数近零时，比率虽巨而只示方向、不示精度，故此处分档而不列数字。
+        分组按「朝代 × 体裁大类」——词多仄韵、诗多平韵，若混作一谈，所量者是体裁之别而非个人风格。</div>
+      </div>` : ""}
     <div class="card about"><p class="credit">意象取全库表面标注，体裁与韵部取自计量层；
-    统计仅及本馆所收之作，非其全集实况。</p></div>`;
+    统计仅及本馆所收之作，非其全集实况。${f.dev === null ? "此家韵脚样本未足二十处，或同组不足三家，故不判偏离度 —— 样本小则分布不稳，强判即成噪声。" : ""}</p></div>`;
   document.querySelector(".fp-pick2").onclick = () => {
     const arr = toggleFpPick(f.author);
     location.hash = arr.length === 2
@@ -1039,6 +1058,10 @@ route(/^\/fingerprint\/([^/]+)\/([^/]+)$/, async m => {
         ${yb.size ? "｜韵 " + b.yun.slice(0, 4).map(x => x[0]).join(" ") : ""}</span></div>
       <div class="cmp-row"><b>同用体裁</b><span>${[...ga.keys()].filter(k => gb.has(k)).join(" · ") || "—"}</span></div>
       <div class="cmp-row"><b>同用韵部</b><span>${[...ya.keys()].filter(k => yb.has(k)).join(" · ") || "—"}</span></div>
+      ${(a.dev != null || b.dev != null) ? `<div class="cmp-row"><b>用韵之偏</b><span>${
+        [a, b].map(x => x.dev != null
+          ? `${esc(x.author)} ${x.dev.toFixed(3)}（${esc(x.grp)}）`
+          : `${esc(x.author)} 样本未足`).join("　｜　")}</span></div>` : ""}
     </div>
     <div class="card about"><p class="credit">差异以每首均次计，已消弭二家存诗多寡之影响；此为形式计量，
     不代作风格优劣与师承判断。</p></div>`;
@@ -2200,6 +2223,39 @@ route(/^\/compose(?:\/(shipu|cipu|yun|check))?$/, async m => {
       });
       const tmpl = fit ? tmplLines(fit.q, charN, n) : null;
 
+      /* 四时之象：草稿若明言某季，示以此季常见之象（参考，非纠错） */
+      let seasonTip = null;
+      try {
+        const sd = await getJSON("season.json");
+        const allText = fold(lines.join(""));
+        const hit = Object.entries(sd.words)
+          .filter(([, ws]) => ws.some(w => allText.includes(fold(w))))
+          .map(([s]) => s);
+        if (hit.length === 1) {
+          const s = hit[0];
+          const used = new Set();
+          const wideIdx = await getJSON("imagery_wide.json");
+          for (const it of wideIdx.items) {
+            if ((it.surfaces || []).some(sf => allText.includes(fold(sf)))) used.add(it.name);
+          }
+          const seasons = sd.seasons;
+          const rate = (ss, im) => (sd.img[ss][im] || 0) / Math.max(1, sd.n[ss]);
+          const cand = Object.keys(sd.img[s])
+            .map(im => {
+              const rs = seasons.map(x => rate(x, im));
+              const sum = rs.reduce((p, q) => p + q, 0) || 1;
+              return { im, r: rate(s, im), skew: rate(s, im) / (sum / seasons.length) };
+            })
+            .filter(c => c.r > 0.02 && c.skew > 1.15)
+            .sort((x, y) => y.skew - x.skew);
+          seasonTip = {
+            season: s,
+            used: [...used].filter(im => cand.some(c => c.im === im)).slice(0, 8),
+            suggest: cand.filter(c => !used.has(c.im)).slice(0, 10).map(c => c.im),
+          };
+        }
+      } catch { /* 四时数据缺失时略过 */ }
+
       /* 拗救所在句的偏差不计入「出律」计数 */
       const devHard = (fit ? fit.dev : []).filter(d => !aoLines.has(d.line));
       out.innerHTML = `
@@ -2246,6 +2302,17 @@ route(/^\/compose(?:\/(shipu|cipu|yun|check))?$/, async m => {
             </div>`;
           }).join("")}
         </div>
+        ${seasonTip ? `<div class="card">
+          <div class="yun-head"><b>${esc(seasonTip.season)}日之象</b>
+            <span>此季常见者 · 仅供采择</span></div>
+          ${seasonTip.used.length ? `<div class="cmp-row"><b>篇中已用</b><span>${
+            seasonTip.used.map(im => `<a class="chip on" href="#/cross?img=${encodeURIComponent(im)}">${esc(im)}</a>`).join("")}</span></div>` : ""}
+          <div class="cmp-row"><b>此季宜用</b><span>${
+            seasonTip.suggest.map(im => `<a class="chip" href="#/cross?img=${encodeURIComponent(im)}">${esc(im)}</a>`).join("") || "—"}</span></div>
+          <div class="legend" style="margin-top:8px">取古人明言${esc(seasonTip.season)}时并用之象（依四时统计）。
+          <b>反季取象自古有之</b>（如「人间四月芳菲尽，山寺桃花始盛开」），此处只作采择之资，不作规矩之绳。
+          <a href="#/season" style="color:var(--seal)">意象四时 →</a></div>
+        </div>` : ""}
         ${clashes.length ? `<div class="card">${clashes.map(c => {
           const r = c.hit;
           return `<a class="evi-item" href="#/poem/${encodeURIComponent(r[0])}?hl=${encodeURIComponent(lines[c.i])}">

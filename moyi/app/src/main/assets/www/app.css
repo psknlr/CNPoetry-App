@@ -498,6 +498,21 @@ a.mx-cell:active { transform: scale(.9); }
 .fp-duo .fp-k2 { flex: none; width: 4.6em; text-align: center; font-size: .8rem; letter-spacing: .05em; }
 .person-row .chip.fp-pick { flex: none; margin: 0 6px 0 0; }
 
+/* 用韵偏离度量表 */
+.dev-gauge { padding: 6px 2px 10px; }
+.dev-track {
+  position: relative; height: 8px; border-radius: 4px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--dai) 55%, transparent),
+    color-mix(in srgb, var(--gold) 45%, transparent),
+    color-mix(in srgb, var(--seal) 65%, transparent));
+}
+.dev-track i {
+  position: absolute; top: -4px; width: 3px; height: 16px; border-radius: 2px;
+  background: var(--ink); box-shadow: 0 0 0 2px var(--paper-raise);
+}
+.dev-scale { display: flex; justify-content: space-between; font-size: .68rem; color: var(--ink-3); margin-top: 6px; letter-spacing: .2em; }
+
 /* 广谱意象格 */
 .img-cell.wide-cell { border-style: dashed; }
 .img-cell.wide-cell .g { color: var(--ink-2); }
