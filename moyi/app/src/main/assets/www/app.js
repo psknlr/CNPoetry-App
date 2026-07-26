@@ -259,10 +259,10 @@ route(/^\/$/, async () => {
     </a>
 
     <div class="stats-strip">
-      <div class="st"><b>${stats.poems.toLocaleString()}</b><span>作品</span></div>
-      <div class="st"><b>${stats.imagery}</b><span>意象</span></div>
-      <div class="st"><b>${stats.authors}</b><span>诗人</span></div>
-      <div class="st"><b>${stats.cipai}</b><span>词牌</span></div>
+      <a class="st" href="#/lib"><b>${stats.poems.toLocaleString()}</b><span>作品</span></a>
+      <a class="st" href="#/imagery"><b>${stats.imagery}</b><span>意象</span></a>
+      <a class="st" href="#/poets"><b>${stats.authors}</b><span>诗人</span></a>
+      <a class="st" href="#/cipai"><b>${stats.cipai}</b><span>词牌</span></a>
     </div>
 
     ${kicker(2, "馆藏四门")}
@@ -300,7 +300,7 @@ async function renderPairFlowFor(name, slotId) {
   };
   const row = p => {
     const other = p.pair.split("|").find(x => x !== name) || name;
-    return `<a class="pair-row" href="#/pairflow?pair=${encodeURIComponent(p.pair)}">
+    return `<a class="pair-row" href="#/cross?img=${encodeURIComponent(name)}&img2=${encodeURIComponent(other)}">
       <span class="pr-pair">${esc(other)}</span>${spark(p)}
       <span class="pr-trend ${p.trend >= 1.5 ? "up" : p.trend <= 0.67 ? "down" : ""}">${
         p.trend >= 1.5 ? "渐兴" : p.trend <= 0.67 ? "渐微" : "平稳"}</span>
@@ -350,7 +350,8 @@ route(/^\/imagery$/, async () => {
 
   const cellArch = p => {
     const emo = (p.emotion_associations || [])[0];
-    return `<a class="img-cell" href="#/imagery/${encodeURIComponent(p.imagery)}">
+    return `<a class="img-cell" href="#/imagery/${encodeURIComponent(p.imagery)}"
+        title="${esc(p.imagery)} · ${p.n_poems} 首">
         ${emo ? `<span class="e">${esc(emo.emotion.slice(0, 2))}</span>` : ""}
         <span class="g">${esc(p.imagery)}</span>
         <span class="n">${p.n_poems} 首</span></a>`;
@@ -453,10 +454,12 @@ route(/^\/imagery\/([^/]+)(?:\/(evi))?$/, async (m) => {
         || `<div class="empty">—</div>`}
       </div>
 
-      ${kicker(3, "朝代分布")}
+      ${kicker(3, "朝代分布", "点柱溯源")}
       <div class="card">
         <div class="dyn-bars">${dyn.map(([d, n]) => `
-          <div class="db"><b>${n}</b><i style="height:${Math.max(4, Math.round(n / maxDyn * 100))}%"></i><span>${esc(d)}</span></div>`).join("")}
+          <a class="db" href="#/cross?img=${encodeURIComponent(name)}&era=${encodeURIComponent(d)}&wide=0"
+             title="${esc(name)} · ${esc(d)}：${n} 首（档案层）· 点开溯源">
+            <b>${n}</b><i style="height:${Math.max(4, Math.round(n / maxDyn * 100))}%"></i><span>${esc(d)}</span></a>`).join("")}
         </div>
       </div>
       ${kicker(4, "与谁搭配 · 何时兴替", "共现流变")}
@@ -1040,12 +1043,16 @@ route(/^\/fingerprint\/([^/]+)$/, async m => {
       篇幅／象密（每首意象数）／象广（用象种数）／近体（律绝占比）／自然·人事（二类意象占比）。
       ${refRow && refRow.n >= 3 ? "灰虚线为同代同体侪辈之均值轮廓，以相形见其偏正。" : ""}</div>
     </div>
-    ${kicker(1, "惯用意象", "全库标注计量")}
-    <div class="card">${fpBars(f.img, maxI, k => "#/cross?img=" + encodeURIComponent(k))}</div>
-    ${kicker(2, "体裁偏好")}
-    <div class="card">${fpBars(f.genre, maxG)}</div>
+    ${kicker(1, "惯用意象", "点条溯源")}
+    <div class="card">${fpBars(f.img, maxI,
+      k => `#/cross?img=${encodeURIComponent(k)}&author=${encodeURIComponent(f.author)}`)}</div>
+    ${kicker(2, "体裁偏好", "点条溯源")}
+    <div class="card">${fpBars(f.genre, maxG,
+      k => `#/cross?genre=${encodeURIComponent(k)}&author=${encodeURIComponent(f.author)}`)}</div>
     ${kicker(3, "用韵倾向", "韵脚归平水韵部")}
-    <div class="card">${f.yun.length ? fpBars(f.yun, maxY) : `<div class="empty">此家作品未标韵脚</div>`}</div>
+    <div class="card">${f.yun.length ? fpBars(f.yun, maxY,
+      k => `#/cross?yun=${encodeURIComponent(k)}&author=${encodeURIComponent(f.author)}`)
+      : `<div class="empty">此家作品未标韵脚</div>`}</div>
     ${f.dev !== null && f.dev !== undefined ? `
       ${kicker(4, "用韵之偏", "较同代同体")}
       <div class="card">
@@ -1073,8 +1080,10 @@ route(/^\/fingerprint\/([^/]+)$/, async m => {
         </div>
         <div class="cmp-row"><b>组内位次</b><span>第 ${rare.rank} / ${rare.grp_n} 家（${esc(rare.grp)}）· 分位 ${(rare.pct * 100).toFixed(0)}%</span></div>
         <div class="cmp-row"><b>惯用之配</b><span>${rare.n_pairs} 对（用过两次以上者）</span></div>
-        <div class="cmp-row"><b>侪辈罕用</b><span>${rare.rare.slice(0, 6).map(([k, , n]) =>
-          `<a class="chip" href="#/pairflow?pair=${encodeURIComponent(k)}">${esc(k.replace("|", "·"))}${n <= 1 ? " 独" : ""}</a>`).join("")}</span></div>
+        <div class="cmp-row"><b>侪辈罕用</b><span>${rare.rare.slice(0, 6).map(([k, , cnt]) => {
+          const [ia, ib] = k.split("|");
+          return `<a class="chip" href="#/cross?img=${encodeURIComponent(ia)}&img2=${encodeURIComponent(ib)}&author=${encodeURIComponent(f.author)}">${esc(ia)}·${esc(ib)}${cnt <= 1 ? " 独" : ""}</a>`;
+        }).join("")}</span></div>
         <div class="legend" style="margin-top:8px">此量为其惯用搭配在侪辈中的平均罕见度。
         <b>不作「首创」之论</b> —— 语料为抽样非全集，年代仅及朝代粒度，同代之内无从定先后；
         此处只言「较侪辈罕用」，不言谁人首倡。</div>
@@ -1186,7 +1195,9 @@ route(/^\/fingerprint\/([^/]+)\/([^/]+)$/, async m => {
     <div class="card">${rows.slice(0, 12).map(r => `
       <div class="fp-duo">
         <span class="fp-a" style="width:${Math.round(r.ra / maxR * 46)}%"></span>
-        <span class="fp-k2"><a href="#/cross?img=${encodeURIComponent(r.k)}">${esc(r.k)}</a></span>
+        <span class="fp-k2"><a href="#/cross?img=${encodeURIComponent(r.k)}">${esc(r.k)}</a>
+          <em class="duo-src"><a href="#/cross?img=${encodeURIComponent(r.k)}&author=${encodeURIComponent(a.author)}">墨</a>
+          <a href="#/cross?img=${encodeURIComponent(r.k)}&author=${encodeURIComponent(b.author)}">胭</a></em></span>
         <span class="fp-b" style="width:${Math.round(r.rb / maxR * 46)}%"></span>
       </div>`).join("")}
       <div class="legend" style="margin-top:10px">左（墨）为 ${esc(a.author)}，右（胭）为 ${esc(b.author)}；
@@ -1194,7 +1205,8 @@ route(/^\/fingerprint\/([^/]+)\/([^/]+)$/, async m => {
     </div>
     ${kicker(3, "共好意象", shared.length + " 个")}
     <div class="card">${shared.slice(0, 16).map(r =>
-      `<a class="chip" href="#/cross?img=${encodeURIComponent(r.k)}">${esc(r.k)}</a>`).join("") || "—"}</div>
+      `<a class="chip" href="#/cross?img=${encodeURIComponent(r.k)}">${esc(r.k)}</a>`).join("") || "—"}
+      <div class="legend" style="margin-top:8px">点入即见用此象之作；欲分观二家，可于上表点「墨」「胭」。</div></div>
     ${kicker(4, "体裁与用韵")}
     <div class="card">
       <div class="cmp-row"><b>${esc(a.author)}</b><span>${a.genre.slice(0, 4).map(x => x[0] + " " + x[1]).join(" · ")}
@@ -1226,7 +1238,7 @@ route(/^\/pairflow$/, async (_m, query) => {
   };
   const rowHTML = p => {
     const [x, y] = p.pair.split("|");
-    return `<a class="pair-row" href="#/pairflow?pair=${encodeURIComponent(p.pair)}">
+    return `<a class="pair-row" href="#/cross?img=${encodeURIComponent(x)}&img2=${encodeURIComponent(y)}">
       <span class="pr-pair">${esc(x)}<em>·</em>${esc(y)}</span>
       ${spark(p)}
       <span class="pr-trend ${p.trend >= 1.5 ? "up" : p.trend <= 0.67 ? "down" : ""}">${
@@ -1248,7 +1260,8 @@ route(/^\/pairflow$/, async (_m, query) => {
       <div class="card">
         ${eras.map(e => {
           const v = p.rates[e] || 0;
-          return `<div class="fp-bar"><span class="fp-k">${esc(e)}</span>
+          return `<div class="fp-bar"><span class="fp-k">
+            <a href="#/cross?img=${encodeURIComponent(x)}&img2=${encodeURIComponent(y)}&era=${encodeURIComponent(e)}">${esc(e)}</a></span>
             <i style="width:${Math.round(v / mx * 100)}%"></i><b>${v}‰</b></div>`;
         }).join("")}
         <div class="legend" style="margin-top:8px">共现率＝二象同篇之数 ÷ 该朝作品数。
@@ -1258,7 +1271,7 @@ route(/^\/pairflow$/, async (_m, query) => {
       <div class="filter-row">
         <a class="chip" href="#/cross?img=${encodeURIComponent(x)}">${esc(x)} 之作 →</a>
         <a class="chip" href="#/cross?img=${encodeURIComponent(y)}">${esc(y)} 之作 →</a>
-        <a class="chip seal-chip" href="#/search">高级检索求交 →</a>
+        <a class="chip seal-chip" href="#/cross?img=${encodeURIComponent(x)}&img2=${encodeURIComponent(y)}">二象合观 →</a>
       </div>
       <div class="card about"><p class="credit">${esc(d.note)}</p></div>`;
     return;
@@ -1319,19 +1332,23 @@ route(/^\/rhymeflow$/, async () => {
       <table class="mx-table">
         <thead><tr><th></th>${eras.map(e => `<th>${esc(e)}</th>`).join("")}</tr></thead>
         <tbody>${yuns.map(y => `<tr>
-          <th class="mx-emo"><a href="#/compose/yun">${esc(y)}</a></th>
+          <th class="mx-emo"><a href="#/cross?yun=${encodeURIComponent(y)}">${esc(y)}</a></th>
           ${eras.map(e => {
             const s = share(e, y);
-            return `<td><span class="mx-cell" style="--a:${(s / maxShare).toFixed(3)}"
-              title="${esc(e)}·${esc(y)}韵：${flow[e][y] || 0} 处，占 ${(s * 100).toFixed(1)}%">${
-              s > 0.005 ? (s * 100).toFixed(0) : ""}</span></td>`;
+            const v = flow[e][y] || 0;
+            return `<td>${v
+              ? `<a class="mx-cell" href="#/cross?yun=${encodeURIComponent(y)}&era=${encodeURIComponent(e)}"
+                   style="--a:${(s / maxShare).toFixed(3)}"
+                   title="${esc(e)}·${esc(y)}韵：${v} 处，占 ${(s * 100).toFixed(1)}% · 点开溯源">${
+                  s > 0.005 ? (s * 100).toFixed(0) : ""}</a>`
+              : `<span class="mx-cell" style="--a:0"></span>`}</td>`;
           }).join("")}</tr>`).join("")}</tbody>
       </table>
     </div>
     <div class="card">
-      <div class="sf-label">各代韵脚计量</div>
+      <div class="sf-label">各代韵脚计量 · 点入溯源</div>
       <div class="sf-stat">${eras.map(e =>
-        `<span class="chip">${esc(e)} ${totals[e].toLocaleString()}</span>`).join("")}</div>
+        `<a class="chip" href="#/cross?era=${encodeURIComponent(e)}">${esc(e)} ${totals[e].toLocaleString()}</a>`).join("")}</div>
     </div>
     <div class="card about"><p class="credit">格值为该韵部在该朝韵脚中的百分比（色深同此），
     故各代篇数多寡不影响比较。${esc(data.note)}</p></div>`;
@@ -1634,10 +1651,12 @@ route(/^\/poet\/([^/]+)$/, async m => {
     ${a.bio ? `${kicker(1, "小传", "集内旁证 · C 层")}<div class="card"><div class="bio">${esc(a.bio)}</div></div>` : ""}
     ${kicker(a.bio ? 2 : 1, "惯用意象")}
     <div class="card">
-      ${(a.top_imagery || []).map(i => `<a class="chip" href="#/imagery/${encodeURIComponent(i.imagery)}">${esc(i.imagery)} · ${i.count}</a>`).join("") || "—"}
+      ${(a.top_imagery || []).map(i =>
+        `<a class="chip" href="#/cross?img=${encodeURIComponent(i.imagery)}&author=${encodeURIComponent(a.author)}">${esc(i.imagery)} · ${i.count}</a>`).join("") || "—"}
     </div>
     ${kicker(a.bio ? 3 : 2, "体裁分布")}
-    <div class="card">${forms.map(([f, n]) => `<span class="chip">${esc(f)} · ${n}</span>`).join("") || "—"}</div>
+    <div class="card">${forms.map(([g, c]) =>
+      `<a class="chip" href="#/cross?genre=${encodeURIComponent(g)}&author=${encodeURIComponent(a.author)}">${esc(g)} · ${c}</a>`).join("") || "—"}</div>
     ${kicker(a.bio ? 4 : 3, "存世作品")}
     <div id="poet-poems"><div class="loading">展 卷 中 …</div></div>`;
 
@@ -1756,12 +1775,14 @@ route(/^\/season$/, async () => {
     <hr class="rule-double">
     <div class="card about"><p>季节由篇中<b>直接季节词</b>判定（如「秋风」「暮春」），兼含两季者不判。
     所示为「诗人明言某季时，同篇并用何种意象」—— 而非以物候反推季节，那将是循环论证。</p>
-    <p class="credit">${seasons.map(s => `${s} ${d.n[s].toLocaleString()} 首`).join(" · ")}</p></div>
+    <p class="credit">${seasons.map(s =>
+      `<a class="chip" href="#/cross?season=${encodeURIComponent(s)}">${s} ${d.n[s].toLocaleString()} 首</a>`).join("")}</p></div>
     ${seasons.map((s, si) => `
       ${kicker(si + 1, s + "之象", "偏此季者")}
       <div class="card">
         ${bySeason[s].map(r => `
-          <div class="fp-bar"><span class="fp-k"><a href="#/cross?img=${encodeURIComponent(r.im)}">${esc(r.im)}</a></span>
+          <div class="fp-bar"><span class="fp-k">
+            <a href="#/cross?img=${encodeURIComponent(r.im)}&season=${encodeURIComponent(s)}">${esc(r.im)}</a></span>
             <i style="width:${Math.round(r.rs[si] / maxR * 100)}%"></i>
             <b>${(r.rs[si] * 100).toFixed(1)}%</b></div>`).join("") || `<div class="empty">—</div>`}
         <div class="legend" style="margin-top:8px">条长为该意象在${esc(s)}诗中的出现率；按四季倾向度择出偏于本季者。</div>
@@ -1772,8 +1793,10 @@ route(/^\/season$/, async () => {
         <thead><tr><th></th>${seasons.map(s => `<th>${esc(s)}</th>`).join("")}</tr></thead>
         <tbody>${rows.slice(0, 26).map(r => `<tr>
           <th class="mx-emo"><a href="#/cross?img=${encodeURIComponent(r.im)}">${esc(r.im)}</a></th>
-          ${r.rs.map(v => `<td><span class="mx-cell" style="--a:${(v / maxR).toFixed(3)}"
-            title="${(v * 100).toFixed(1)}%">${(v * 1000).toFixed(0)}</span></td>`).join("")}
+          ${r.rs.map((v, vi) => `<td>${v > 0
+            ? `<a class="mx-cell" href="#/cross?img=${encodeURIComponent(r.im)}&season=${encodeURIComponent(seasons[vi])}"
+                 style="--a:${(v / maxR).toFixed(3)}" title="${esc(seasons[vi])}·${esc(r.im)} ${(v * 100).toFixed(1)}% · 点开溯源">${(v * 1000).toFixed(0)}</a>`
+            : `<span class="mx-cell" style="--a:0"></span>`}</td>`).join("")}
         </tr>`).join("")}</tbody>
       </table>
     </div>
@@ -1783,18 +1806,28 @@ route(/^\/season$/, async () => {
 /* ── 视图：交叉检索（意象 × 情感 × 题材 × 语词，处处可入）─── */
 route(/^\/cross$/, async (_m, query) => {
   const want = {
-    img: query.img || "", emo: query.emo || "",
-    thm: query.thm || "", term: query.term || "",
+    img: query.img || "", img2: query.img2 || "", emo: query.emo || "",
+    thm: query.thm || "", term: query.term || "", era: query.era || "",
+    book: query.book || "", genre: query.genre || "", author: query.author || "",
+    yun: query.yun || "", season: query.season || "",
   };
   const labels = [
-    want.img && `意象「${want.img}」`, want.emo && `情感「${want.emo}」`,
-    want.thm && `题材「${want.thm}」`, want.term && `语词「${want.term}」`,
+    want.img && `意象「${want.img}」`, want.img2 && `意象「${want.img2}」`,
+    want.emo && `情感「${want.emo}」`, want.thm && `题材「${want.thm}」`,
+    want.term && `语词「${want.term}」`, want.yun && `${want.yun}韵`,
+    want.season && `${want.season}日`, want.era && `${want.era}代`,
+    want.book && `《${want.book}》`, want.genre && want.genre,
+    want.author && `${want.author}作`,
   ].filter(Boolean);
   $view.innerHTML = `
     <div class="reader-top">${backBtn("返回")}${sealHTML("交叉")}</div>
     <div class="masthead"><div><h1 style="font-size:1.7rem;letter-spacing:.15em">${esc(labels.join(" × ") || "交叉检索")}</h1>
       <div class="sub" id="cross-sub">检 索 中 …</div></div></div>
     <hr class="rule-double">
+    ${(want.img || want.img2) ? `<div class="legend" style="margin:-6px 2px 10px">
+      意象取${query.wide === "0" ? "<b>档案层</b>（规则挖掘所标，仅及核心库）"
+        : "<b>广谱层</b>（全库表面标注，含明清补遗等未参与挖掘之作）"}；
+      二层数目不同，非有误也。</div>` : ""}
     <div id="cross-body"><div class="loading">交 叉 求 集 中 …</div></div>`;
 
   const { rows } = await catalog();
@@ -1805,15 +1838,35 @@ route(/^\/cross$/, async (_m, query) => {
     idxSet = idxSet === null ? s : new Set([...idxSet].filter(x => s.has(x)));
   };
   try {
-    if (want.img || want.emo || want.thm) {
+    if (want.img || want.img2 || want.emo || want.thm) {
       const ti = await getJSON("tag_index.json");
       /* 意象默认用全库广谱标注；wide=0 时限于档案层（经审核的规则挖掘结果） */
-      if (want.img) {
-        intersect(query.wide === "0" ? (ti.imagery[want.img] || [])
-          : (ti.wide[want.img] || ti.imagery[want.img] || []));
-      }
+      const imgIds = n => query.wide === "0" ? (ti.imagery[n] || [])
+        : (ti.wide[n] || ti.imagery[n] || []);
+      if (want.img) intersect(imgIds(want.img));
+      if (want.img2) intersect(imgIds(want.img2));
       if (want.emo) intersect(ti.emotion[want.emo] || []);
       if (want.thm) intersect(ti.theme[want.thm] || []);
+    }
+    if (want.yun) {
+      const yi = await getJSON("yun_index.json");
+      intersect(yi[want.yun] || []);
+    }
+    if (want.season) {
+      const si = await getJSON("season_index.json");
+      intersect(si[want.season] || []);
+    }
+    if (want.era || want.book || want.genre || want.author) {
+      const fa = fold(want.author);
+      const ids = [];
+      rows.forEach((r, i) => {
+        if (want.era && r[3] !== want.era) return;
+        if (want.book && r[4] !== want.book) return;
+        if (want.genre && r[5] !== want.genre) return;
+        if (want.author && fold(r[2]) !== fa) return;
+        ids.push(i);
+      });
+      intersect(ids);
     }
     if (want.term) {
       const tt = await getJSON("theme_terms.json");
@@ -1833,19 +1886,43 @@ route(/^\/cross$/, async (_m, query) => {
     byEra[r[3]] = (byEra[r[3]] || 0) + 1;
     byBook[r[4]] = (byBook[r[4]] || 0) + 1;
   }
+  /* 统计条亦可点：在现有条件上再加一维，逐层收束 */
+  const withMore = extra => {
+    const q = Object.entries(want).filter(([, v]) => v)
+      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`);
+    if (query.wide === "0") q.push("wide=0");
+    for (const [k, v] of Object.entries(extra)) q.push(`${k}=${encodeURIComponent(v)}`);
+    return "#/cross?" + q.join("&");
+  };
   document.getElementById("cross-sub").textContent = `${hits.length.toLocaleString()} 首交叉命中`;
   document.getElementById("cross-body").innerHTML = hits.length ? `
     <div class="card">
+      <div class="sf-label">朝代分布 · 点入收束</div>
       <div class="sf-stat">${Object.entries(byEra).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
-        `<span class="chip">${esc(k)} ${v}</span>`).join("")}</div>
-      <div class="sf-stat">${Object.entries(byBook).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) =>
-        `<span class="chip seal-chip">${esc(k)} ${v}</span>`).join("")}</div>
+        want.era === k
+          ? `<span class="chip on">${esc(k)} ${v}</span>`
+          : `<a class="chip" href="${withMore({ era: k })}">${esc(k)} ${v}</a>`).join("")}</div>
+      <div class="sf-label">集部分布 · 点入收束</div>
+      <div class="sf-stat">${Object.entries(byBook).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k, v]) =>
+        want.book === k
+          ? `<span class="chip on seal-chip">${esc(k)} ${v}</span>`
+          : `<a class="chip seal-chip" href="${withMore({ book: k })}">${esc(k)} ${v}</a>`).join("")}</div>
     </div>
-    ${want.img || want.emo ? `<div class="filter-row">
+    <div class="filter-row">
       ${want.img ? `<a class="chip" href="#/imagery/${encodeURIComponent(want.img)}">意象档案 · ${esc(want.img)} →</a>` : ""}
+      ${want.img && want.img2 ? `<a class="chip" href="#/pairflow?pair=${encodeURIComponent(want.img + "|" + want.img2)}">此配流变 →</a>` : ""}
       ${want.thm ? `<a class="chip" href="#/theme/${encodeURIComponent(want.thm)}">题材 · ${esc(want.thm)} →</a>` : ""}
-      <a class="chip" href="#/matrix">情象矩阵 →</a>
-    </div>` : ""}
+      ${want.yun ? `<a class="chip" href="#/compose/yun">韵表 →</a>` : ""}
+      ${want.season ? `<a class="chip" href="#/season">意象四时 →</a>` : ""}
+      ${want.author ? `<a class="chip" href="#/fingerprint/${encodeURIComponent(want.author)}">风格指纹 →</a>` : ""}
+      ${want.book ? `<a class="chip" href="#/lib/book/${encodeURIComponent(want.book)}">集部 →</a>` : ""}
+      ${Object.entries(want).filter(([k, v]) => v && k !== "term").length > 1
+        ? Object.entries(want).filter(([k, v]) => v && k !== "term").map(([k]) => {
+            const rest = Object.entries(want).filter(([k2, v2]) => v2 && k2 !== k)
+              .map(([k2, v2]) => `${k2}=${encodeURIComponent(v2)}`).join("&");
+            return `<a class="chip" href="#/cross?${rest}">去「${esc(want[k])}」条 →</a>`;
+          }).join("") : ""}
+    </div>
     ${want.img && !want.emo && !want.thm ? `
       <details class="fold card" style="padding:4px 18px"><summary>与谁搭配 · 何时兴替</summary>
         <div class="fold-body" style="white-space:normal"><div id="cross-pairs"></div></div>
@@ -2973,6 +3050,11 @@ route(/^\/theme\/([^/]+)$/, async m => {
     <div class="img-hero"><span class="big" style="font-size:2.6rem">${esc(t.theme)}</span>
       <div class="facts"><div class="nums">${t.n_poems} 首归品</div></div></div>
     <div class="card about"><p>${esc(t.definition || "")}</p></div>
+    ${(t.dynasty_distribution && Object.keys(t.dynasty_distribution).length) ? `
+      <div class="card"><div class="sf-label">朝代分布 · 点入溯源</div>
+        <div class="sf-stat">${Object.entries(t.dynasty_distribution)
+          .sort((a, b) => b[1] - a[1]).map(([d, c]) =>
+          `<a class="chip" href="#/cross?thm=${encodeURIComponent(t.theme)}&era=${encodeURIComponent(d)}">${esc(d)} ${c}</a>`).join("")}</div></div>` : ""}
     ${kicker(1, "标志语汇", "点词查作品")}
     <div class="card">${(t.marker_terms || []).map(w =>
       `<a class="chip" href="#/cross?term=${encodeURIComponent(w)}">${esc(w)}</a>`).join("")}

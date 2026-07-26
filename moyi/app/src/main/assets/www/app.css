@@ -675,3 +675,12 @@ a.mx-cell:active { transform: scale(.9); }
 }
 .fav-row .rm:active { background: color-mix(in srgb, var(--seal) 12%, transparent); color: var(--seal); }
 .r-tools button.fav-on { background: var(--seal); border-color: var(--seal); color: var(--seal-ink); }
+
+/* 溯源可点元素 */
+.dyn-bars a.db { text-decoration: none; }
+.dyn-bars a.db:active i { background: var(--seal); }
+.stats-strip a.st:active { opacity: .6; }
+.fp-duo .duo-src { font-style: normal; display: block; font-size: .6rem; letter-spacing: .1em; }
+.fp-duo .duo-src a { color: var(--ink-3); padding: 0 3px; }
+.fp-duo .duo-src a:first-child { color: var(--ink-2); }
+.fp-duo .duo-src a:last-child { color: var(--seal); }

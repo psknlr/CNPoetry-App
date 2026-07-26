@@ -892,6 +892,39 @@ def main() -> int:
                     flow.setdefault(d, {}).setdefault(ps, 0)
                     flow[d][ps] += 1
                     break
+    # 韵部倒排：每篇取其韵脚众数所归之平水韵部为「主韵部」，供逐格溯源。
+    # 众数而非全数：一篇偶有异部韵脚（换韵、借韵），若尽数计入，
+    # 溯源所得将杂厕他部之作。
+    yun_index: dict = {}
+    for p in shards_flat:
+        feet = (p.get("m") or {}).get("rf") or []
+        cnt: dict = {}
+        for c in feet:
+            rec = gy.get(c) or gy.get(t2s(c))
+            if not rec:
+                continue
+            for yun, tone, _f in rec[1]:
+                ps = GY_TO_PINGSHUI.get(yun)
+                if ps:
+                    cnt[ps] = cnt.get(ps, 0) + 1
+                    break
+        if cnt:
+            main = max(cnt.items(), key=lambda x: x[1])[0]
+            yun_index.setdefault(main, []).append(row_of[p["id"]])
+    for k in yun_index:
+        yun_index[k].sort()
+    total += dump(out / "yun_index.json", yun_index)
+    print(f"韵部倒排 {len(yun_index)} 部 · "
+          f"{sum(len(v) for v in yun_index.values())} 篇有主韵部")
+
+    # 季节倒排（承四时之判，供逐条溯源）
+    season_index: dict = {}
+    for pid, s in season_of.items():
+        season_index.setdefault(s, []).append(row_of[pid])
+    for k in season_index:
+        season_index[k].sort()
+    total += dump(out / "season_index.json", season_index)
+
     total += dump(out / "rhyme_flow.json", {
         "flow": flow,
         "eras": [d for d, _ in DYN_SEQ if d in flow],
