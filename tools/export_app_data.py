@@ -623,10 +623,19 @@ def main() -> int:
                     if ps:
                         e["yun"][ps] += 1
                         break
+    # 雷达维度所需：意象门类归属、近体判定
+    CAT_OF = {n: v["category"] for n, v in WIDE_LEX.items()}
+    NATURE = {"天文", "时令", "地理", "植物", "动物", "档案"}
+    HUMAN = {"人事", "人文", "器物", "建筑", "边塞", "时空"}
+    JINTI = {"五律", "七律", "五绝", "七绝"}
     fingerprints = []
     for a, e in prints_.items():
         if e["n"] < 20:
             continue
+        n_img = sum(e["img"].values())
+        nat = sum(c for k, c in e["img"].items() if CAT_OF.get(k, "档案") in NATURE)
+        hum = sum(c for k, c in e["img"].items() if CAT_OF.get(k) in HUMAN)
+        jin = sum(c for k, c in e["g"].items() if k in JINTI)
         fingerprints.append({
             "author": a, "n": e["n"],
             "dynasty": e["d"].most_common(1)[0][0],
@@ -634,7 +643,13 @@ def main() -> int:
             "img": e["img"].most_common(12),
             "genre": e["g"].most_common(6),
             "yun": e["yun"].most_common(8),
-            "avg_lines": round(e["len"] / e["n"], 1)})
+            "avg_lines": round(e["len"] / e["n"], 1),
+            # 雷达六维原值（前端再按全体分位归一）
+            "r_density": round(n_img / e["n"], 3),          # 每首意象数
+            "r_variety": len(e["img"]),                      # 用象之广
+            "r_jinti": round(jin / e["n"], 3),               # 近体率
+            "r_nature": round(nat / max(1, n_img), 3),       # 自然之象占比
+            "r_human": round(hum / max(1, n_img), 3)})       # 人事之象占比
     # 用韵偏离度：与「同代同体」诗人的韵部分布之距离，余弦距离度量
     # （0 从众 ~ 1 独异）。两处领域陷阱须避开：
     #   1. 词多用仄韵（入/上/去），诗多用平韵，若与混合基准比，词人必然「偏离」，
@@ -691,6 +706,56 @@ def main() -> int:
     total += dump(out / "fingerprints.json", fingerprints)
     judged = sum(1 for f in fingerprints if f.get("dev") is not None)
     print(f"诗人指纹 {len(fingerprints)} 位（≥20 首）· 用韵偏离度得判 {judged} 位")
+
+    # ── 意象共现的时代变迁：意象对 × 朝代共现率 ───────────────────
+    # 领域要点：以「共现率」（共现篇数 ÷ 该朝作品数）而非绝对数比较，
+    # 否则唐宋篇数悬殊，一切搭配都会显得「唐代最盛」。
+    MAIN_ERAS = ["唐", "五代", "宋", "元", "明", "清"]
+    era_total = {}
+    for p in shards_flat:
+        if p["d"] in MAIN_ERAS:
+            era_total[p["d"]] = era_total.get(p["d"], 0) + 1
+    top_im = [n for n, _ in sorted(wide_counts.items(), key=lambda x: -x[1])[:60]]
+    top_set = set(top_im)
+    pair_era: dict = {}
+    for p in shards_flat:
+        d = p["d"]
+        if d not in era_total:
+            continue
+        ims = sorted(set((p.get("img") or []) + (p.get("wimg") or [])) & top_set)
+        for i in range(len(ims)):
+            for j in range(i + 1, len(ims)):
+                k = ims[i] + "|" + ims[j]
+                pair_era.setdefault(k, {})
+                pair_era[k][d] = pair_era[k].get(d, 0) + 1
+    eras_present = [e for e in MAIN_ERAS if era_total.get(e, 0) >= 300]
+    pairs_out = []
+    for k, per in pair_era.items():
+        tot = sum(per.values())
+        if tot < 120:
+            continue
+        rates = {e: per.get(e, 0) / era_total[e] for e in eras_present}
+        vals = [rates[e] for e in eras_present]
+        if max(vals) <= 0:
+            continue
+        # 趋势：后半期均率 ÷ 前半期均率（>1 渐兴，<1 渐微）
+        half = max(1, len(eras_present) // 2)
+        early = sum(vals[:half]) / half or 1e-9
+        late = sum(vals[half:]) / max(1, len(vals) - half)
+        pairs_out.append({
+            "pair": k, "n": tot,
+            "rates": {e: round(rates[e] * 1000, 2) for e in eras_present},   # ‰
+            "peak": eras_present[vals.index(max(vals))],
+            "trend": round(late / early, 3)})
+    pairs_out.sort(key=lambda r: -r["n"])
+    total += dump(out / "pair_flow.json", {
+        "eras": eras_present,
+        "era_total": {e: era_total[e] for e in eras_present},
+        "pairs": pairs_out[:600],
+        "note": "共现率＝二象同篇之数 ÷ 该朝作品数（千分比），故各代篇数多寡不干扰比较；"
+                "趋势为后半期均率与前半期之比，>1 渐兴、<1 渐微。"
+                "明清一层为网络汇编抽样，其率宜作参考而非定论。"})
+    print(f"意象共现流变：{len(pairs_out)} 对 × {len(eras_present)} 朝")
 
     # ── 韵部时代流变：朝代 × 平水韵部（按韵脚计量）────────────────
     flow: dict = {}

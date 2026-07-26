@@ -498,6 +498,24 @@ a.mx-cell:active { transform: scale(.9); }
 .fp-duo .fp-k2 { flex: none; width: 4.6em; text-align: center; font-size: .8rem; letter-spacing: .05em; }
 .person-row .chip.fp-pick { flex: none; margin: 0 6px 0 0; }
 
+/* 雷达图 */
+.radar { width: min(100%, 300px); height: auto; display: block; margin: 0 auto; }
+.radar-legend { display: flex; justify-content: center; gap: 20px; font-size: .78rem; color: var(--ink-2); margin: 4px 0 10px; }
+.radar-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+
+/* 共现流变 */
+.pair-row { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--hairline); }
+.pair-row:last-child { border-bottom: none; }
+.pair-row:active { background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.pair-row .pr-pair { flex: none; width: 5.4em; font-size: .95rem; letter-spacing: .04em; }
+.pair-row .pr-pair em { font-style: normal; color: var(--ink-3); margin: 0 2px; }
+.pair-row .pr-trend { flex: none; font-size: .72rem; color: var(--ink-3); letter-spacing: .04em; }
+.pair-row .pr-trend.up { color: var(--seal); }
+.pair-row .pr-trend.down { color: var(--dai); }
+.pair-row .pr-peak { flex: none; font-size: .7rem; color: var(--ink-3); }
+.spark { flex: 1; min-width: 46px; display: flex; align-items: flex-end; gap: 2px; height: 26px; }
+.spark i { flex: 1; background: color-mix(in srgb, var(--dai) 70%, transparent); border-radius: 2px 2px 0 0; min-height: 2px; }
+
 /* 用韵偏离度量表 */
 .dev-gauge { padding: 6px 2px 10px; }
 .dev-track {

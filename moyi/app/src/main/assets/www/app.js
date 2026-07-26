@@ -157,7 +157,7 @@ async function render() {
       (t === "imagery" && tab === "imagery") ||
       (t === "salon" && ["salon", "cipai", "theme", "feihua", "about", "starmap", "fav",
         "rhyme", "compose", "prose", "duike", "matrix", "fu", "famous", "allusion",
-        "compare", "rhymeflow", "season"].includes(tab)) ||
+        "compare", "rhymeflow", "season", "pairflow"].includes(tab)) ||
       (t === "poets" && ["poet", "poets", "fingerprint"].includes(tab)) ||
       (t === "lib" && ["lib", "search", "cross"].includes(tab)) ||
       (t === "poets" && tab === "poet"));
@@ -978,6 +978,11 @@ route(/^\/fingerprint\/([^/]+)$/, async m => {
       <a class="chip" href="#/poet/${encodeURIComponent(f.author)}">诗人档案 →</a>
       <button class="chip fp-pick2">择入对读</button>
     </div>
+    <div class="card" style="text-align:center">
+      ${radarSVG([{ f, color: "var(--seal)" }], radarPercentiles(fps))}
+      <div class="legend" style="text-align:left">六维按全体 ${fps.length} 家分位归一：
+      篇幅／象密（每首意象数）／象广（用象种数）／近体（律绝占比）／自然·人事（二类意象占比）。</div>
+    </div>
     ${kicker(1, "惯用意象", "全库标注计量")}
     <div class="card">${fpBars(f.img, maxI, k => "#/cross?img=" + encodeURIComponent(k))}</div>
     ${kicker(2, "体裁偏好")}
@@ -1012,10 +1017,61 @@ route(/^\/fingerprint\/([^/]+)$/, async m => {
   };
 });
 
+/* 雷达图：六维按全体分位归一（绝对值量纲各异，分位方见其相对位置） */
+const RADAR_DIMS = [
+  { k: "avg_lines", label: "篇幅" },
+  { k: "r_density", label: "象密" },
+  { k: "r_variety", label: "象广" },
+  { k: "r_jinti", label: "近体" },
+  { k: "r_nature", label: "自然" },
+  { k: "r_human", label: "人事" },
+];
+function radarPercentiles(fps) {
+  const sorted = {};
+  for (const d of RADAR_DIMS) {
+    sorted[d.k] = fps.map(f => f[d.k] ?? 0).sort((x, y) => x - y);
+  }
+  return (k, v) => {
+    const arr = sorted[k];
+    if (!arr || !arr.length) return 0;
+    let lo = 0, hi = arr.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid] < v) lo = mid + 1; else hi = mid; }
+    return lo / arr.length;
+  };
+}
+function radarSVG(series, pct, size = 260) {
+  const cx = size / 2, cy = size / 2 + 6, R = size * 0.34;
+  const n = RADAR_DIMS.length;
+  const pt = (i, r) => {
+    const ang = -Math.PI / 2 + i * 2 * Math.PI / n;
+    return [cx + Math.cos(ang) * R * r, cy + Math.sin(ang) * R * r];
+  };
+  const rings = [0.25, 0.5, 0.75, 1].map(r =>
+    `<polygon points="${RADAR_DIMS.map((_, i) => pt(i, r).map(v => v.toFixed(1)).join(",")).join(" ")}"
+      fill="none" stroke="var(--hairline)" stroke-width="1"/>`).join("");
+  const spokes = RADAR_DIMS.map((_, i) =>
+    `<line x1="${cx}" y1="${cy}" x2="${pt(i, 1)[0].toFixed(1)}" y2="${pt(i, 1)[1].toFixed(1)}"
+      stroke="var(--hairline)" stroke-width="1"/>`).join("");
+  const labels = RADAR_DIMS.map((d, i) => {
+    const [x, y] = pt(i, 1.24);
+    return `<text x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="middle"
+      font-size="11" fill="var(--ink-2)">${esc(d.label)}</text>`;
+  }).join("");
+  const shapes = series.map(s => {
+    const pts = RADAR_DIMS.map((d, i) => pt(i, Math.max(0.04, pct(d.k, s.f[d.k] ?? 0))))
+      .map(v => v.map(x => x.toFixed(1)).join(",")).join(" ");
+    return `<polygon points="${pts}" fill="${s.color}" fill-opacity="0.16"
+      stroke="${s.color}" stroke-width="1.8" stroke-linejoin="round"/>`;
+  }).join("");
+  return `<svg viewBox="0 0 ${size} ${size + 14}" class="radar">
+    ${rings}${spokes}${shapes}${labels}</svg>`;
+}
+
 route(/^\/fingerprint\/([^/]+)\/([^/]+)$/, async m => {
   const fps = await getJSON("fingerprints.json");
   const a = fps.find(x => x.author === m[1]), b = fps.find(x => x.author === m[2]);
   if (!a || !b) { $view.innerHTML = `<div class="empty">二家之中有未立指纹者</div>`; return; }
+  const pct = radarPercentiles(fps);
   const mapOf = arr => new Map(arr);
   const ia = mapOf(a.img), ib = mapOf(b.img);
   const allImg = [...new Set([...ia.keys(), ...ib.keys()])];
@@ -1037,7 +1093,23 @@ route(/^\/fingerprint\/([^/]+)\/([^/]+)$/, async m => {
       <div class="cmp-col"><div class="cmp-title">${esc(b.author)}</div>
         <div class="cmp-meta">${esc(b.dynasty)} · ${b.n} 首<br>均 ${b.avg_lines} 句</div></div>
     </div>
-    ${kicker(1, "意象偏好之差", "每首均次")}
+    ${kicker(1, "六维之形", "较全体分位")}
+    <div class="card" style="text-align:center">
+      ${radarSVG([{ f: a, color: "var(--ink)" }, { f: b, color: "var(--seal)" }], pct)}
+      <div class="radar-legend">
+        <span><i style="background:var(--ink)"></i>${esc(a.author)}</span>
+        <span><i style="background:var(--seal)"></i>${esc(b.author)}</span>
+      </div>
+      <div class="cmp-row" style="text-align:left"><b>篇幅</b><span>${a.avg_lines} / ${b.avg_lines} 句</span></div>
+      <div class="cmp-row" style="text-align:left"><b>象密</b><span>每首 ${a.r_density} / ${b.r_density} 象</span></div>
+      <div class="cmp-row" style="text-align:left"><b>象广</b><span>用象 ${a.r_variety} / ${b.r_variety} 种</span></div>
+      <div class="cmp-row" style="text-align:left"><b>近体</b><span>${(a.r_jinti * 100).toFixed(0)}% / ${(b.r_jinti * 100).toFixed(0)}%</span></div>
+      <div class="cmp-row" style="text-align:left"><b>自然｜人事</b><span>${(a.r_nature * 100).toFixed(0)}%｜${(a.r_human * 100).toFixed(0)}%　对　${(b.r_nature * 100).toFixed(0)}%｜${(b.r_human * 100).toFixed(0)}%</span></div>
+      <div class="legend" style="margin-top:8px;text-align:left">六维皆按全体 ${fps.length} 家之分位归一
+      （量纲各异，绝对值不可径比）：篇幅＝平均句数，象密＝每首意象数，象广＝所用意象种数，
+      近体＝律绝占比，自然/人事＝二类意象在其用象中之占比。</div>
+    </div>
+    ${kicker(2, "意象偏好之差", "每首均次")}
     <div class="card">${rows.slice(0, 12).map(r => `
       <div class="fp-duo">
         <span class="fp-a" style="width:${Math.round(r.ra / maxR * 46)}%"></span>
@@ -1047,10 +1119,10 @@ route(/^\/fingerprint\/([^/]+)\/([^/]+)$/, async m => {
       <div class="legend" style="margin-top:10px">左（墨）为 ${esc(a.author)}，右（胭）为 ${esc(b.author)}；
       条长为每首均次，按二家差异由大到小排列。</div>
     </div>
-    ${kicker(2, "共好意象", shared.length + " 个")}
+    ${kicker(3, "共好意象", shared.length + " 个")}
     <div class="card">${shared.slice(0, 16).map(r =>
       `<a class="chip" href="#/cross?img=${encodeURIComponent(r.k)}">${esc(r.k)}</a>`).join("") || "—"}</div>
-    ${kicker(3, "体裁与用韵")}
+    ${kicker(4, "体裁与用韵")}
     <div class="card">
       <div class="cmp-row"><b>${esc(a.author)}</b><span>${a.genre.slice(0, 4).map(x => x[0] + " " + x[1]).join(" · ")}
         ${ya.size ? "｜韵 " + a.yun.slice(0, 4).map(x => x[0]).join(" ") : ""}</span></div>
@@ -1065,6 +1137,88 @@ route(/^\/fingerprint\/([^/]+)\/([^/]+)$/, async m => {
     </div>
     <div class="card about"><p class="credit">差异以每首均次计，已消弭二家存诗多寡之影响；此为形式计量，
     不代作风格优劣与师承判断。</p></div>`;
+});
+
+/* ── 视图：意象共现的时代变迁 ─────────────────────────────── */
+route(/^\/pairflow$/, async (_m, query) => {
+  const d = await getJSON("pair_flow.json");
+  const eras = d.eras;
+  const sel = query.pair || "";
+  const maxRate = Math.max(...d.pairs.flatMap(p => Object.values(p.rates)), 1);
+  const spark = p => {
+    const vs = eras.map(e => p.rates[e] || 0);
+    const mx = Math.max(...vs, 0.01);
+    return `<span class="spark">${vs.map((v, i) =>
+      `<i style="height:${Math.max(6, v / mx * 100)}%" title="${esc(eras[i])} ${v}‰"></i>`).join("")}</span>`;
+  };
+  const rowHTML = p => {
+    const [x, y] = p.pair.split("|");
+    return `<a class="pair-row" href="#/pairflow?pair=${encodeURIComponent(p.pair)}">
+      <span class="pr-pair">${esc(x)}<em>·</em>${esc(y)}</span>
+      ${spark(p)}
+      <span class="pr-trend ${p.trend >= 1.5 ? "up" : p.trend <= 0.67 ? "down" : ""}">${
+        p.trend >= 1.5 ? "渐兴" : p.trend <= 0.67 ? "渐微" : "平稳"} ${p.trend.toFixed(1)}×</span>
+      <span class="pr-peak">峰 ${esc(p.peak)}</span></a>`;
+  };
+
+  if (sel) {
+    const p = d.pairs.find(x => x.pair === sel);
+    if (!p) { $view.innerHTML = `<div class="empty">未收此搭配</div>`; return; }
+    const [x, y] = p.pair.split("|");
+    const mx = Math.max(...eras.map(e => p.rates[e] || 0), 0.01);
+    $view.innerHTML = `
+      <div class="reader-top">${backBtn("共现流变", "#/pairflow")}${sealHTML("共现")}</div>
+      <div class="img-hero"><span class="big" style="font-size:2.4rem">${esc(x)}·${esc(y)}</span>
+        <div class="facts"><div class="nums">共现 ${p.n.toLocaleString()} 篇 · 峰在${esc(p.peak)} ·
+          ${p.trend >= 1.5 ? "渐兴" : p.trend <= 0.67 ? "渐微" : "平稳"}</div></div></div>
+      ${kicker(1, "历代共现率", "千分比")}
+      <div class="card">
+        ${eras.map(e => {
+          const v = p.rates[e] || 0;
+          return `<div class="fp-bar"><span class="fp-k">${esc(e)}</span>
+            <i style="width:${Math.round(v / mx * 100)}%"></i><b>${v}‰</b></div>`;
+        }).join("")}
+        <div class="legend" style="margin-top:8px">共现率＝二象同篇之数 ÷ 该朝作品数。
+        各朝作品数：${eras.map(e => `${e} ${d.era_total[e].toLocaleString()}`).join(" · ")}。</div>
+      </div>
+      ${kicker(2, "分头查考")}
+      <div class="filter-row">
+        <a class="chip" href="#/cross?img=${encodeURIComponent(x)}">${esc(x)} 之作 →</a>
+        <a class="chip" href="#/cross?img=${encodeURIComponent(y)}">${esc(y)} 之作 →</a>
+        <a class="chip seal-chip" href="#/search">高级检索求交 →</a>
+      </div>
+      <div class="card about"><p class="credit">${esc(d.note)}</p></div>`;
+    return;
+  }
+
+  const rise = [...d.pairs].sort((a, b) => b.trend - a.trend).slice(0, 20);
+  const fall = [...d.pairs].sort((a, b) => a.trend - b.trend).slice(0, 20);
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("风雅集", "#/salon")}${sealHTML("共现流变")}</div>
+    <div class="masthead"><div><h1>流变</h1><div class="sub">意象搭配之兴替</div></div></div>
+    <hr class="rule-double">
+    <div class="card about"><p>以<b>共现率</b>（二象同篇之数 ÷ 该朝作品数）比较历代，
+    故各代篇数悬殊不干扰判读。柱形自左而右为 ${eras.join("、")}。</p>
+    <p class="credit">五代仅 ${d.era_total["五代"] || 0} 首且尽出花间、南唐二集，其率反映此二集之性，
+    非一代之全貌；明清一层为网络汇编抽样，亦宜作参考。</p></div>
+    ${searchboxHTML("pf-q", "寻一意象之搭配，如：梅 / 剑 / 帘")}
+    <div id="pf-search"></div>
+    ${kicker(1, "渐兴之配", "后世益盛")}
+    <div class="card" style="padding:6px 14px">${rise.map(rowHTML).join("")}</div>
+    ${kicker(2, "渐微之配", "后世益稀")}
+    <div class="card" style="padding:6px 14px">${fall.map(rowHTML).join("")}</div>
+    ${kicker(3, "共现之最", "同篇最多")}
+    <div class="card" style="padding:6px 14px">${d.pairs.slice(0, 20).map(rowHTML).join("")}</div>`;
+  await foldMap();
+  document.getElementById("pf-q").oninput = e => {
+    const q = fold(e.target.value.trim());
+    const el = document.getElementById("pf-search");
+    if (!q) { el.innerHTML = ""; return; }
+    const hits = d.pairs.filter(p => fold(p.pair).includes(q)).slice(0, 30);
+    el.innerHTML = hits.length
+      ? `<div class="card" style="padding:6px 14px">${hits.map(rowHTML).join("")}</div>`
+      : `<div class="empty">未见含此象之常见搭配</div>`;
+  };
 });
 
 /* ── 视图：韵部时代流变 ────────────────────────────────────── */
@@ -1442,6 +1596,7 @@ route(/^\/salon$/, async () => {
       <a class="entry" href="#/fingerprint"><b>风格指纹</b><span>意象 · 体裁 · 用韵 · 可对读</span><span class="e-glyph">纹</span></a>
       <a class="entry" href="#/rhymeflow"><b>韵部流变</b><span>历代用韵之消长</span><span class="e-glyph">韵</span></a>
       <a class="entry" href="#/season"><b>意象四时</b><span>明言某季 · 并用何象</span><span class="e-glyph">时</span></a>
+      <a class="entry" href="#/pairflow"><b>共现流变</b><span>意象搭配之兴替</span><span class="e-glyph">变</span></a>
       <a class="entry" href="#/allusion"><b>典故</b><span>出处 · 寓意 · 歧义辨析</span><span class="e-glyph">典</span></a>
       <a class="entry" href="#/starmap"><b>意象星图</b><span>五十意象 · 同篇共现网络</span><span class="e-glyph">星</span></a>
       <a class="entry" href="#/matrix"><b>情象矩阵</b><span>情感 × 意象 · 点格入交叉</span><span class="e-glyph">矩</span></a>
