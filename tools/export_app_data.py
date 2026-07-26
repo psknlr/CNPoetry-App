@@ -514,6 +514,72 @@ def main() -> int:
     print(f"标签倒排：档案意象 {len(tag_index['imagery'])} · 广谱意象 {len(tag_index['wide'])} · "
           f"情感 {len(tag_index['emotion'])} · 题材 {len(tag_index['theme'])}")
 
+    # ── 意象四时：意象 × 季节的关联流变 ───────────────────────────
+    # 领域要点：季节判定**只用直接季节词**（春/秋/冬/夏及节令名），
+    # 绝不用「桃花判春、霜雁判秋」——那样等于先假定结论再统计其相关，
+    # 属循环论证。故本表所示为「诗人明言某季时，同篇常并用何种意象」。
+    SEASON_WORDS = {
+        "春": ["春日", "春风", "春色", "春光", "早春", "暮春", "残春", "春归",
+               "春深", "春来", "春去", "阳春", "三春", "春夜", "春晓", "春寒"],
+        "夏": ["夏日", "长夏", "炎夏", "初夏", "夏夜", "六月", "溽暑", "炎天"],
+        "秋": ["秋日", "秋风", "秋色", "秋声", "深秋", "清秋", "残秋", "新秋",
+               "秋光", "三秋", "秋夜", "秋来", "素秋", "金秋"],
+        "冬": ["冬日", "严冬", "隆冬", "初冬", "冬夜", "腊月", "岁寒", "穷冬"],
+    }
+    season_of: dict = {}
+    for i, p in enumerate(shards_flat):
+        text = catalog[row_of[p["id"]]][7]
+        hit = [s for s, ws in SEASON_WORDS.items() if any(w in text for w in ws)]
+        if len(hit) == 1:                     # 兼含两季者不判，避免歧义
+            season_of[p["id"]] = hit[0]
+    season_img: dict = {s: {} for s in SEASON_WORDS}
+    season_n = {s: 0 for s in SEASON_WORDS}
+    for p in shards_flat:
+        s = season_of.get(p["id"])
+        if not s:
+            continue
+        season_n[s] += 1
+        for im in set((p.get("img") or []) + (p.get("wimg") or [])):
+            season_img[s][im] = season_img[s].get(im, 0) + 1
+    total += dump(out / "season.json", {
+        "seasons": list(SEASON_WORDS), "n": season_n, "img": season_img,
+        "words": SEASON_WORDS,
+        "note": "季节由篇中直接季节词判定（如「秋风」「暮春」），兼含两季者不判；"
+                "所示为诗人明言某季时同篇并用之意象，非以物候反推季节（那将是循环论证）。"})
+    print(f"意象四时：春 {season_n['春']} · 夏 {season_n['夏']} · "
+          f"秋 {season_n['秋']} · 冬 {season_n['冬']} 首得判")
+
+    # ── 广谱意象共现网络 + 情感矩阵（供星图/矩阵切换到广谱层）─────
+    wide_pairs_cnt: dict = {}
+    wide_emo: dict = {}
+    for p in shards_flat:
+        ims = sorted(set((p.get("img") or []) + (p.get("wimg") or [])))
+        for a_i in range(len(ims)):
+            for b_i in range(a_i + 1, len(ims)):
+                k = (ims[a_i], ims[b_i])
+                wide_pairs_cnt[k] = wide_pairs_cnt.get(k, 0) + 1
+        for e in (p.get("emo") or []):
+            for im in ims:
+                wide_emo.setdefault(e, {}).setdefault(im, 0)
+                wide_emo[e][im] += 1
+    wide_counts: dict = {}
+    for p in shards_flat:
+        for im in set((p.get("img") or []) + (p.get("wimg") or [])):
+            wide_counts[im] = wide_counts.get(im, 0) + 1
+    top_nodes = [n for n, _ in sorted(wide_counts.items(), key=lambda x: -x[1])[:80]]
+    node_set = set(top_nodes)
+    edges = sorted(((a, b, c) for (a, b), c in wide_pairs_cnt.items()
+                    if a in node_set and b in node_set),
+                   key=lambda x: -x[2])[:400]
+    total += dump(out / "wide_network.json", {
+        "nodes": [{"imagery": n, "count": wide_counts[n]} for n in top_nodes],
+        "edges": [{"source": a, "target": b, "weight": c} for a, b, c in edges],
+        "emotion_matrix": wide_emo,
+        "n_poems": len(shards_flat),
+        "note": "广谱层共现与情感矩阵：意象取全库表面标注，情感仅核心库有标注，"
+                "故情感格值之基数小于意象格值。"})
+    print(f"广谱网络：{len(top_nodes)} 节点 · {len(edges)} 边 · 情感 {len(wide_emo)} 类")
+
     # ── 广谱意象总表（含门类、覆盖统计）───────────────────────────
     wide_meta = []
     for name, v in WIDE_LEX.items():

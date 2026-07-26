@@ -157,7 +157,7 @@ async function render() {
       (t === "imagery" && tab === "imagery") ||
       (t === "salon" && ["salon", "cipai", "theme", "feihua", "about", "starmap", "fav",
         "rhyme", "compose", "prose", "duike", "matrix", "fu", "famous", "allusion",
-        "compare", "rhymeflow"].includes(tab)) ||
+        "compare", "rhymeflow", "season"].includes(tab)) ||
       (t === "poets" && ["poet", "poets", "fingerprint"].includes(tab)) ||
       (t === "lib" && ["lib", "search", "cross"].includes(tab)) ||
       (t === "poets" && tab === "poet"));
@@ -1418,6 +1418,7 @@ route(/^\/salon$/, async () => {
       <a class="entry" href="#/famous"><b>名句谱</b><span>跨代化用 · 实证度量</span><span class="e-glyph">名</span></a>
       <a class="entry" href="#/fingerprint"><b>风格指纹</b><span>意象 · 体裁 · 用韵 · 可对读</span><span class="e-glyph">纹</span></a>
       <a class="entry" href="#/rhymeflow"><b>韵部流变</b><span>历代用韵之消长</span><span class="e-glyph">韵</span></a>
+      <a class="entry" href="#/season"><b>意象四时</b><span>明言某季 · 并用何象</span><span class="e-glyph">时</span></a>
       <a class="entry" href="#/allusion"><b>典故</b><span>出处 · 寓意 · 歧义辨析</span><span class="e-glyph">典</span></a>
       <a class="entry" href="#/starmap"><b>意象星图</b><span>五十意象 · 同篇共现网络</span><span class="e-glyph">星</span></a>
       <a class="entry" href="#/matrix"><b>情象矩阵</b><span>情感 × 意象 · 点格入交叉</span><span class="e-glyph">矩</span></a>
@@ -1436,9 +1437,10 @@ route(/^\/salon$/, async () => {
 });
 
 /* ── 视图：情感 × 意象矩阵（计量热力 · 处处可入）─────────── */
-route(/^\/matrix$/, async () => {
-  const net = await getJSON("network.json");
-  const mx = net.emotion_imagery_matrix || {};
+route(/^\/matrix$/, async (_m, query) => {
+  const wideMode = query.layer === "wide";
+  const net = wideMode ? await getJSON("wide_network.json") : await getJSON("network.json");
+  const mx = (wideMode ? net.emotion_matrix : net.emotion_imagery_matrix) || {};
   const emotions = Object.keys(mx);
   const imgSet = new Map();
   for (const row of Object.values(mx)) {
@@ -1446,11 +1448,15 @@ route(/^\/matrix$/, async () => {
   }
   const imgs = [...imgSet.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(x => x[0]);
   const max = Math.max(...emotions.flatMap(e => imgs.map(i => mx[e][i] || 0)), 1);
-  const xs = (e, i) => `#/cross?emo=${encodeURIComponent(e)}&img=${encodeURIComponent(i)}`;
+  const xs = (e, i) => `#/cross?emo=${encodeURIComponent(e)}&img=${encodeURIComponent(i)}${wideMode ? "" : "&wide=0"}`;
   $view.innerHTML = `
     <div class="reader-top">${backBtn("风雅集", "#/salon")}${sealHTML("情象矩阵")}</div>
     <div class="masthead"><div><h1>情象</h1><div class="sub">情感 × 意象 · 同篇计量</div></div></div>
     <hr class="rule-double">
+    <div class="seg" id="mx-layer">
+      <button data-l="" class="${wideMode ? "" : "on"}">档案层</button>
+      <button data-l="wide" class="${wideMode ? "on" : ""}">广谱层</button>
+    </div>
     <div class="card" style="overflow-x:auto">
       <table class="mx-table">
         <thead><tr><th></th>${imgs.map(i =>
@@ -1468,7 +1474,59 @@ route(/^\/matrix$/, async () => {
       </table>
     </div>
     <div class="card about"><p class="credit">格值为该情感与该意象在同一作品中共现的篇数（B 层确定性计量，可回源复算）；
-    色深与数值成正比。<b>点格进交叉作品，点行首情感、点表头意象各自成集</b>。</p></div>`;
+    色深与数值成正比。<b>点格进交叉作品，点行首情感、点表头意象各自成集</b>。
+    ${wideMode ? "广谱层意象取全库表面标注，情感仅核心库有标注，故基数不同于档案层。" : ""}</p></div>`;
+  document.querySelectorAll("#mx-layer button").forEach(b => b.onclick = () =>
+    location.replace("#/matrix" + (b.dataset.l ? "?layer=wide" : "")));
+});
+
+/* ── 视图：意象四时（明言某季时并用之意象）────────────────── */
+route(/^\/season$/, async () => {
+  const d = await getJSON("season.json");
+  const seasons = d.seasons.filter(s => (d.n[s] || 0) > 50);
+  /* 以「该季中的占比 ÷ 全季平均占比」为倾向度，见其偏于何季 */
+  const rate = (s, im) => (d.img[s][im] || 0) / Math.max(1, d.n[s]);
+  const allImg = [...new Set(seasons.flatMap(s => Object.keys(d.img[s])))];
+  const rows = allImg.map(im => {
+    const rs = seasons.map(s => rate(s, im));
+    const sum = rs.reduce((a, b) => a + b, 0);
+    const total = seasons.reduce((a, s) => a + (d.img[s][im] || 0), 0);
+    const best = rs.indexOf(Math.max(...rs));
+    const skew = sum ? Math.max(...rs) / (sum / seasons.length) : 0;
+    return { im, rs, total, best: seasons[best], skew };
+  }).filter(r => r.total >= 60);
+  rows.sort((a, b) => b.skew - a.skew);
+  const maxR = Math.max(...rows.flatMap(r => r.rs), 0.001);
+  const bySeason = {};
+  for (const s of seasons) bySeason[s] = rows.filter(r => r.best === s).slice(0, 14);
+  $view.innerHTML = `
+    <div class="reader-top">${backBtn("风雅集", "#/salon")}${sealHTML("意象四时")}</div>
+    <div class="masthead"><div><h1>四时</h1><div class="sub">意象与季节之关联</div></div></div>
+    <hr class="rule-double">
+    <div class="card about"><p>季节由篇中<b>直接季节词</b>判定（如「秋风」「暮春」），兼含两季者不判。
+    所示为「诗人明言某季时，同篇并用何种意象」—— 而非以物候反推季节，那将是循环论证。</p>
+    <p class="credit">${seasons.map(s => `${s} ${d.n[s].toLocaleString()} 首`).join(" · ")}</p></div>
+    ${seasons.map((s, si) => `
+      ${kicker(si + 1, s + "之象", "偏此季者")}
+      <div class="card">
+        ${bySeason[s].map(r => `
+          <div class="fp-bar"><span class="fp-k"><a href="#/cross?img=${encodeURIComponent(r.im)}">${esc(r.im)}</a></span>
+            <i style="width:${Math.round(r.rs[si] / maxR * 100)}%"></i>
+            <b>${(r.rs[si] * 100).toFixed(1)}%</b></div>`).join("") || `<div class="empty">—</div>`}
+        <div class="legend" style="margin-top:8px">条长为该意象在${esc(s)}诗中的出现率；按四季倾向度择出偏于本季者。</div>
+      </div>`).join("")}
+    <div class="card" style="overflow-x:auto">
+      <div class="sf-label">四时全览（出现率 ‰）</div>
+      <table class="mx-table">
+        <thead><tr><th></th>${seasons.map(s => `<th>${esc(s)}</th>`).join("")}</tr></thead>
+        <tbody>${rows.slice(0, 26).map(r => `<tr>
+          <th class="mx-emo"><a href="#/cross?img=${encodeURIComponent(r.im)}">${esc(r.im)}</a></th>
+          ${r.rs.map(v => `<td><span class="mx-cell" style="--a:${(v / maxR).toFixed(3)}"
+            title="${(v * 100).toFixed(1)}%">${(v * 1000).toFixed(0)}</span></td>`).join("")}
+        </tr>`).join("")}</tbody>
+      </table>
+    </div>
+    <div class="card about"><p class="credit">${esc(d.note)}</p></div>`;
 });
 
 /* ── 视图：交叉检索（意象 × 情感 × 题材 × 语词，处处可入）─── */
@@ -1906,6 +1964,29 @@ route(/^\/compose(?:\/(shipu|cipu|yun|check))?$/, async m => {
               cilinAll = cilinAll === null ? cs : new Set([...cilinAll].filter(x => cs.has(x)));
             }
           }
+          /* 撞句核验：依谱行切句，逐句比对语料（与近体校验同一口径） */
+          const draftLines = text.split(/[\n，。、；：？！,.;:?!]+/)
+            .map(s => cjkOnly(s)).filter(s => s.length >= 4);
+          const needles = draftLines.map((l, i) => ({ i, l, fl: fold(l) }));
+          const clashMap = new Map();
+          if (needles.length) {
+            await scanFullText((txt, row) => {
+              for (const nd of needles) {
+                if (!clashMap.has(nd.i) && txt.includes(nd.fl)) clashMap.set(nd.i, row);
+              }
+              return false;
+            }, null, 1);
+          }
+          const ciClashes = [...clashMap.entries()].sort((a, b) => a[0] - b[0]);
+          let ciFamous = [];
+          try {
+            const fl = await getJSON("famous.json");
+            ciFamous = needles.map(nd => {
+              const hit = fl.find(r => nd.fl.includes(r.span) || r.span.includes(nd.fl));
+              return hit ? { i: nd.i, span: hit.span, n: hit.n_poems, dyn: hit.n_dyn, src: hit.src } : null;
+            }).filter(Boolean);
+          } catch { /* 名句谱缺失时略过 */ }
+
           /* 谱面渲染：按谱行分列 */
           let ci = 0;
           const rendered = pu.map(x => {
@@ -1928,7 +2009,24 @@ route(/^\/compose(?:\/(shipu|cipu|yun|check))?$/, async m => {
                 : cilinAll && cilinAll.size
                   ? `<span class="v">平水异韵 · 词林正韵同部（${esc([...cilinAll].join("/"))}）</span>`
                   : `<span class="v bad">韵位归部不一</span>`) : ""}
-            </div></div>
+              ${ciClashes.map(([i]) => {
+                const fm = ciFamous.find(f => f.i === i);
+                return `<span class="v bad">第${hanNum(i + 1)}句与古人撞句${
+                  fm ? `（名句 · ${fm.dyn} 朝 ${fm.n} 家化用）` : ""}</span>`;
+              }).join("")}
+              ${!ciClashes.length && needles.length ? `<span class="v ok">未与语料撞句</span>` : ""}
+            </div>
+            ${ciClashes.length ? `<div class="legend" style="margin-top:8px">
+              ${ciClashes.map(([i, row]) => {
+                const fm = ciFamous.find(f => f.i === i);
+                return `第${hanNum(i + 1)}句「${esc(needles.find(n => n.i === i).l)}」见于
+                  <a href="#/poem/${encodeURIComponent(row[0])}?hl=${encodeURIComponent(needles.find(n => n.i === i).l)}"
+                     style="color:var(--seal)">《${esc(row[1] || "无题")}》${esc(row[3])}·${esc(row[2])} →</a>${
+                  fm ? `　此为名句，历代 ${fm.n} 家化用，跨 ${fm.dyn} 朝
+                    <a href="#/famous/${encodeURIComponent(fm.span)}" style="color:var(--seal)">溯流 →</a>` : ""}`;
+              }).join("<br>")}
+              <br>填词多用成句本属常法（如集句词），惟须自知所本，勿掠美为己出。</div>` : ""}
+            </div>
             <div class="card"><div class="pu-check">${rendered}</div>
               <div class="legend" style="margin-top:10px">格内小字为谱位：○平 ●仄 ⊙可平可仄 △平韵 ▲仄韵
               （韵标缀于韵脚字，不另占字位，并收紧该位平仄）；朱砂＝出律，青＝韵位，灰＝广韵无考。
@@ -2237,10 +2335,17 @@ route(/^\/rhyme\/(\d+)$/, async (m, query) => {
 });
 
 /* ── 视图：意象星图 ────────────────────────────────────────── */
-route(/^\/starmap$/, async () => {
-  const net = (await getJSON("network.json")).imagery_network;
+route(/^\/starmap$/, async (_m, query) => {
+  const wideMode = query.layer === "wide";
+  const net = wideMode
+    ? await getJSON("wide_network.json")
+    : (await getJSON("network.json")).imagery_network;
   $view.innerHTML = `
     <div class="reader-top">${backBtn("风雅集", "#/salon")}${sealHTML("意象星图")}</div>
+    <div class="seg" id="star-layer">
+      <button data-l="" class="${wideMode ? "" : "on"}">档案 50</button>
+      <button data-l="wide" class="${wideMode ? "on" : ""}">广谱 ${wideMode ? net.nodes.length : 80}</button>
+    </div>
     <div class="starmap-wrap">
       <div class="starmap-hint">拖 曳 平 移 · 双 指 缩 放 · 点 选 一 星</div>
       <canvas id="star-cv"></canvas>
@@ -2251,13 +2356,16 @@ route(/^\/starmap$/, async () => {
       </div>
     </div>
     <div class="card star-info" id="star-info">
-      <div class="si-head"><span class="g">五十意象</span>
+      <div class="si-head"><span class="g">${net.nodes.length} 意象</span>
         <span class="n">${net.edges.length} 条共现 · 点选星点查看</span></div>
       <div class="si-edges" style="color:var(--ink-2);font-size:.86rem">
         星点大小为该意象在 ${net.n_poems.toLocaleString()} 篇语料中的出现计量，
-        连线粗细为两意象同篇共现之数 —— 皆为 B 层确定性计量，可回源复算。</div>
+        连线粗细为两意象同篇共现之数 —— 皆为 B 层确定性计量，可回源复算。
+        ${wideMode ? "广谱层取全库表面标注（含未参与规则挖掘之作）。" : "档案层为规则挖掘所立之五十意象。"}</div>
     </div>`;
 
+  document.querySelectorAll("#star-layer button").forEach(b => b.onclick = () =>
+    location.replace("#/starmap" + (b.dataset.l ? "?layer=wide" : "")));
   const cv = document.getElementById("star-cv");
   const info = document.getElementById("star-info");
   const css = getComputedStyle(document.documentElement);
@@ -2389,7 +2497,7 @@ route(/^\/starmap$/, async () => {
           `<a class="chip" href="#/imagery/${encodeURIComponent(nodes[o.n].name)}">${esc(nodes[o.n].name)} · 共现 ${o.w}</a>`).join("")}</div>`;
     } else {
       info.innerHTML = `
-        <div class="si-head"><span class="g">五十意象</span>
+        <div class="si-head"><span class="g">${nodes.length} 意象</span>
           <span class="n">${edges.length} 条共现 · 点选星点查看</span></div>`;
     }
   }
