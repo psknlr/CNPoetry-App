@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "moyi": {
+      "command": "python3",
+      "args": ["-m", "moyi_agent.mcp_server"],
+      "cwd": "/path/to/CNPoetry-App/agent",
+      "env": {
+        "MOYI_DATA_DIR": "/path/to/CNPoetry-App/moyi/app/src/main/assets/www/data"
+      }
+    }
+  }
+}

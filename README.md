@@ -95,9 +95,24 @@ App 内每一条意象-情感联系、每一条例证、每一句飞花令应对
 ```
 moyi/                     Android 工程（Kotlin + WebView + WebViewAssetLoader）
   app/src/main/assets/www/    前端（零依赖 SPA）+ 数据 + 字体
+agent/                    墨一·砚友：诗词语料智能体（17 件工具 + 5 门技艺 + MCP 服务器）
 tools/export_app_data.py  从 CNPoetry-Hermes 流水线产物导出 App 静态数据
 CNPoetry-Hermes-main (5).zip  原始流水线代码与语料
 ```
+
+## 墨一·砚友（智能体版本）
+
+`agent/` 是本馆的智能体形态：语料检索、韵书、龙谱、近体/依谱校验、意象档案等
+做成 17 件可调用工具，跑在 Anthropic 工具执行器（Claude Opus 5）上，并以 5 门
+「技艺」（领域工作流程）按需渐进披露；同一套工具另以 MCP 服务器（stdio）暴露，
+可直接接入 Claude Code / Claude Desktop。数据与 App 同源同口径，只读离线。
+
+```bash
+pip install -r agent/requirements.txt && export ANTHROPIC_API_KEY=...
+cd agent && python -m moyi_agent            # 对话；python -m moyi_agent.mcp_server 起 MCP
+```
+
+详见 [agent/README.md](agent/README.md)。
 
 ## 构建
 
