@@ -1,3 +1,4 @@
 # 墨一·砚友 智能体（agent/）依赖
-anthropic>=1.0        # Anthropic SDK（工具执行器 tool runner）
+anthropic>=1.0        # Anthropic SDK（工具执行器 tool runner；默认厂商）
 mcp>=1.0              # MCP Python SDK（1.x FastMCP 与 2.x MCPServer 皆可）
+openai>=1.40          # 仅走 OpenRouter / Poe / MiniMax 等 OpenAI 兼容端点时需要

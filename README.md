@@ -104,7 +104,8 @@ CNPoetry-Hermes-main (5).zip  原始流水线代码与语料
 
 `agent/` 是本馆的智能体形态：语料检索、韵书、龙谱、近体/依谱校验、意象档案等
 做成 17 件可调用工具，跑在 Anthropic 工具执行器（Claude Opus 5）上，并以 5 门
-「技艺」（领域工作流程）按需渐进披露；同一套工具另以 MCP 服务器（stdio）暴露，
+「技艺」（领域工作流程）按需渐进披露；`--provider` 亦可换 OpenRouter / Poe /
+MiniMax 等 OpenAI 兼容端点。同一套工具另以 MCP 服务器（stdio）暴露，
 可直接接入 Claude Code / Claude Desktop。数据与 App 同源同口径，只读离线。
 
 ```bash

@@ -102,6 +102,60 @@ check("技艺目录 5 门", len(sk.get("skills", [])) == 5,
 check("载入 jinti 技艺", "近体诗" in toolkit.load_skill("jinti"))
 check("越权技艺名被拒", "error" in j(toolkit.load_skill("../secret")))
 
+print("── OpenAI 兼容驱动（OpenRouter/Poe/MiniMax） ──")
+from moyi_agent import providers  # noqa: E402
+
+schemas = providers.openai_tools()
+check("17 件工具 schema", len(schemas) == 17)
+cr = next(s["function"] for s in schemas if s["function"]["name"] == "char_rhyme")
+check("schema 含说明与必填", cr["description"].startswith("查一字")
+      and cr["parameters"]["required"] == ["char"]
+      and cr["parameters"]["properties"]["char"]["description"] != "")
+check("默认参数不入必填",
+      "limit" not in next(s["function"] for s in schemas
+                          if s["function"]["name"] == "search_works")["parameters"]["required"])
+check("坏参数折成 JSON 错误", "error" in j(providers.call_tool("char_rhyme", "{bad")))
+check("未知工具折成 JSON 错误", "error" in j(providers.call_tool("nope", "{}")))
+
+
+class _Stub:  # 两回合假端点：先要求调 char_rhyme，再作答
+    class _F:  # function
+        def __init__(s, n, a): s.name, s.arguments = n, a
+
+    class _TC:
+        def __init__(s, i, n, a): s.id, s.function = i, _Stub._F(n, a)
+
+    class _Msg:
+        def __init__(s, c, tc): s.content, s.tool_calls = c, tc
+
+    class _Choice:
+        def __init__(s, m): s.message = m
+
+    class _Resp:
+        def __init__(s, m): s.choices = [_Stub._Choice(m)]
+
+    def __init__(s):
+        s.calls = 0
+        s.chat = s
+        s.completions = s
+
+    def create(s, *, model, messages, tools):
+        s.calls += 1
+        if s.calls == 1:
+            return s._Resp(s._Msg(None, [s._TC("t1", "char_rhyme", '{"char":"东"}')]))
+        tool_msgs = [m for m in messages if m.get("role") == "tool"]
+        assert tool_msgs and "东" in tool_msgs[-1]["content"], "工具结果未回传"
+        return s._Resp(s._Msg("东属上平一东。", None))
+
+
+stub, msgs = _Stub(), [{"role": "user", "content": "东押什么韵"}]
+out = providers.run_turn(stub, msgs, model="stub", system="s")
+check("兼容循环两回合收敛", stub.calls == 2 and out == "东属上平一东。", out)
+check("历史含 assistant/tool 报文",
+      [m["role"] for m in msgs] == ["user", "assistant", "tool", "assistant"],
+      str([m["role"] for m in msgs]))
+check("预设三家齐备", set(providers.PRESETS) == {"openrouter", "poe", "minimax"})
+
 print()
 if FAILS:
     print(f"FAILED: {len(FAILS)} — {FAILS}")

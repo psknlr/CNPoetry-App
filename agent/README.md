@@ -8,14 +8,15 @@
 ```
 ┌─ 智能体（自host） ────────────────────────────────────────┐
 │  python -m moyi_agent            交互式对话（REPL）         │
-│  Claude Opus 5 · 自适应思考 · 前缀缓存 · 服务端拒答降级       │
-└──────────────┬───────────────────────────────────────────┘
-               │ @beta_tool（Anthropic SDK 工具执行器）
-┌──────────────┴─────────────┐   ┌─ MCP 服务器（可选） ─────┐
-│  toolkit.py  17 件语料工具   │←──│ python -m moyi_agent.   │
-│  prosody.py  格律引擎        │   │        mcp_server       │
-│  corpus.py   语料层          │   │ stdio · 17 件 moyi_* 工具│
-└──────────────┬─────────────┘   └─────────────────────────┘
+│  默认 Anthropic（Claude Opus 5 · 自适应思考 · 前缀缓存 ·     │
+│  服务端拒答降级）；--provider 换 OpenRouter/Poe/MiniMax     │
+└──────┬───────────────────────────┬───────────────────────┘
+       │ @beta_tool（工具执行器）     │ providers.py（OpenAI 兼容循环）
+┌──────┴───────────────────────────┴───┐   ┌─ MCP 服务器（可选） ─────┐
+│  toolkit.py  17 件语料工具（单一来源）  │←──│ python -m moyi_agent.   │
+│  prosody.py  格律引擎                 │   │        mcp_server       │
+│  corpus.py   语料层                   │   │ stdio · 17 件 moyi_* 工具│
+└──────────────┬───────────────────────┘   └─────────────────────────┘
                │ 只读
    moyi/app/src/main/assets/www/data/（与 Android App 同源同口径）
 ```
@@ -36,6 +37,38 @@ python test_offline.py                  # 离线自检（31 项，不触 API）
 
 数据目录默认自动定位（仓库内运行免配置）；单独部署时设
 `MOYI_DATA_DIR=<仓库>/moyi/app/src/main/assets/www/data`。
+
+## 换厂商：OpenRouter / Poe / MiniMax / 自定义端点
+
+同一套工具与技艺可跑在任何支持工具调用的模型上（`providers.py`，
+OpenAI 兼容 chat.completions + function calling 手写循环）：
+
+```bash
+export OPENROUTER_API_KEY=...
+python -m moyi_agent --provider openrouter                     # 预设 anthropic/claude-opus-4.5
+python -m moyi_agent --provider openrouter --model minimax/minimax-m2
+
+export POE_API_KEY=...
+python -m moyi_agent --provider poe --model Claude-Opus-4.5    # api.poe.com/v1
+
+export MINIMAX_API_KEY=...
+python -m moyi_agent --provider minimax                        # 预设 MiniMax-M2
+# 大陆端点：--base-url https://api.minimaxi.com/v1
+
+# 任意 OpenAI 兼容端点
+python -m moyi_agent --provider custom --base-url https://... \
+    --model <id> --api-key-env MY_KEY_ENV
+```
+
+MiniMax 另有 **Anthropic 兼容**端点，可直接复用工具执行器路径：
+
+```bash
+ANTHROPIC_API_KEY=<MiniMax钥匙> python -m moyi_agent \
+    --base-url https://api.minimax.io/anthropic --model MiniMax-M2
+```
+
+注意：`--effort`、思考与拒答降级为 Anthropic 参数，非 claude 模型自动略去；
+所选模型须支持工具调用，各家模型 id 以其官方目录为准（预设仅是缺省值）。
 
 ## 17 件工具
 

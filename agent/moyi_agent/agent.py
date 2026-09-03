@@ -55,6 +55,11 @@ def make_runner(client: anthropic.Anthropic, messages: list, *,
                 fallbacks: bool = True, system: str | None = None):
     """构造一轮工具执行器。system/tools 置前、缓存断点在 system 尾，利于前缀缓存。"""
     kwargs: dict = {}
+    if model.startswith("claude"):
+        # 思考/effort 为 Anthropic 参数；第三方 Anthropic 兼容端点
+        # （如 MiniMax /anthropic 跑 MiniMax-M2）未必受理，按模型名门控
+        kwargs["thinking"] = {"type": "adaptive"}
+        kwargs["output_config"] = {"effort": effort}
     if fallbacks and model in ("claude-opus-5", "claude-fable-5-1", "claude-fable-5"):
         # 安全分类器拒答时服务端按类别自动降级重跑（claude-api 技能建议默认开启）
         kwargs["betas"] = ["server-side-fallback-2026-07-01"]
@@ -62,8 +67,6 @@ def make_runner(client: anthropic.Anthropic, messages: list, *,
     return client.beta.messages.tool_runner(
         model=model,
         max_tokens=16000,
-        thinking={"type": "adaptive"},
-        output_config={"effort": effort},
         system=[{"type": "text", "text": system or build_system(),
                  "cache_control": {"type": "ephemeral"}}],
         tools=TOOLS,
